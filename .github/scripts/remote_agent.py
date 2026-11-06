@@ -16,9 +16,21 @@ from pathlib import Path
 API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
-ISSUE_NUMBER = os.environ.get("ISSUE_NUMBER", "")
-TASK_PROMPT = os.environ.get("TASK_PROMPT", "")
-AGENT_ROLE = os.environ.get("AGENT_ROLE", "Full-Stack Engineer")
+EVENT_NAME = os.environ.get("EVENT_NAME", "")
+
+# Determine prompt & issue
+issue_num = os.environ.get("ISSUE_NUMBER", "")
+if EVENT_NAME == "workflow_dispatch":
+    TASK_PROMPT = os.environ.get("INPUT_TASK_PROMPT", "Implement core task")
+    AGENT_ROLE = os.environ.get("INPUT_AGENT_ROLE", "Full-Stack Engineer")
+elif EVENT_NAME == "issue_comment":
+    TASK_PROMPT = f"{os.environ.get('COMMENT_BODY', '')}\n\nContext:\n{os.environ.get('ISSUE_TITLE', '')}\n{os.environ.get('ISSUE_BODY', '')}"
+    AGENT_ROLE = "Auto-Assigned Lead"
+else:
+    TASK_PROMPT = f"{os.environ.get('ISSUE_TITLE', '')}\n\n{os.environ.get('ISSUE_BODY', '')}"
+    AGENT_ROLE = "Auto-Assigned Lead"
+
+ISSUE_NUMBER = issue_num
 
 MODEL_NAME = "gemini-2.5-flash"
 API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={API_KEY}"

@@ -24,7 +24,6 @@ permissions:
 jobs:
   run-agent:
     name: "Autonomous Coding Agent"
-    # Run only on issues/comments directed to the agent or workflow dispatch
     if: >
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' && (contains(github.event.issue.labels.*.name, 'agent') || contains(github.event.issue.title, '[Agent'))) ||
@@ -56,29 +55,16 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Parse Trigger Context
-        id: context
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "task_prompt=${{ github.event.inputs.task_prompt }}" >> $GITHUB_OUTPUT
-            echo "agent_role=${{ github.event.inputs.agent_role }}" >> $GITHUB_OUTPUT
-            echo "issue_number=" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "issues" ]; then
-            echo "task_prompt=${{ github.event.issue.title }} - ${{ github.event.issue.body }}" >> $GITHUB_OUTPUT
-            echo "agent_role=Auto-Assigned Lead" >> $GITHUB_OUTPUT
-            echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event_name }}" = "issue_comment" ]; then
-            echo "task_prompt=${{ github.event.comment.body }} (Context: ${{ github.event.issue.title }})" >> $GITHUB_OUTPUT
-            echo "agent_role=Auto-Assigned Lead" >> $GITHUB_OUTPUT
-            echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Run Cloud Agent Engine
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TASK_PROMPT: ${{ steps.context.outputs.task_prompt }}
-          AGENT_ROLE: ${{ steps.context.outputs.agent_role }}
-          ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TASK_PROMPT: ${{ github.event.inputs.task_prompt }}
+          INPUT_AGENT_ROLE: ${{ github.event.inputs.agent_role }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           python3 .github/scripts/remote_agent.py
