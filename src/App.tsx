@@ -11,27 +11,165 @@ import {
   ShieldCheck, 
   History, 
   Settings,
-  ChevronRight,
-  ArrowRight
+  HelpCircle,
+  X
 } from 'lucide-react';
+import { TodayDashboard } from './components/today/TodayDashboard';
+import { ExceptionQueue, ExceptionItem } from './components/queue/ExceptionQueue';
+import { DetailInspectionLoupe } from './components/loupe/DetailInspectionLoupe';
+import { OmniSearchModal } from './components/search/OmniSearchModal';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+
+const INITIAL_EXCEPTIONS: ExceptionItem[] = [
+  {
+    id: "exc-001",
+    vendorName: "Blue Dart Express Limited",
+    vendorGstin: "27AAACB0446L1ZS",
+    invoiceNumber: "INV/2024/891",
+    gstrInvoiceNumber: "INV/2024/891",
+    invoiceDate: "12/09/2024",
+    gstrDate: "17/09/2024",
+    booksAmount: 5310000,
+    gstrAmount: 5310000,
+    category: "TIMING_DIFFERENCE",
+    confidence: 0.98,
+    statutoryNote: "Timing drift (5 days); filed within permissible 30-day window",
+    suggestedAction: "1-Click Approve (Sec 16(2)(aa) compliant)"
+  },
+  {
+    id: "exc-002",
+    vendorName: "Tata Tele Business Services Ltd",
+    vendorGstin: "27AAACT2727Q1ZW",
+    invoiceNumber: "TI/24-25/00482",
+    gstrInvoiceNumber: "TI-24-25-00482",
+    invoiceDate: "15/09/2024",
+    gstrDate: "15/09/2024",
+    booksAmount: 9912000,
+    gstrAmount: 9912000,
+    category: "INVOICE_TYPO",
+    confidence: 0.94,
+    statutoryNote: "Exact amount & date match; Levenshtein distance 2 on special chars (/ vs -)",
+    suggestedAction: "Confirm Typo Match"
+  },
+  {
+    id: "exc-003",
+    vendorName: "Kolkata Precision Tools Pvt Ltd",
+    vendorGstin: "19AABCK9901M1Z4",
+    invoiceNumber: "KL/GST/2024/99",
+    gstrInvoiceNumber: "KL/GST/2024/99",
+    invoiceDate: "18/09/2024",
+    gstrDate: "18/09/2024",
+    booksAmount: 13440000,
+    gstrAmount: 14160000,
+    category: "TAX_RATE_MISMATCH",
+    confidence: 0.88,
+    statutoryNote: "Client booked at 12% (₹ 14,400 tax); Vendor filed at 18% (₹ 21,600 tax)",
+    suggestedAction: "Flag for ledger adjustment"
+  },
+  {
+    id: "exc-004",
+    vendorName: "Rajasthan Heavy Haulage Logistics",
+    vendorGstin: "08AAECR9012F1Z8",
+    invoiceNumber: "RAJ/INV/772",
+    invoiceDate: "22/09/2024",
+    booksAmount: 24000000,
+    gstrAmount: 0,
+    category: "MISSING_IN_2B",
+    confidence: 0.99,
+    statutoryNote: "Missing in GSTR-2B; ITC at statutory risk under Section 16(2)(aa)",
+    suggestedAction: "Send inquiry notice to vendor"
+  }
+];
 
 export const App: React.FC = () => {
   const [activeClient, setActiveClient] = useState('ACME Manufacturing Pvt Ltd (27AABCA1234F1Z5)');
+  const [currentView, setCurrentView] = useState<'today' | 'queue' | 'reconciliation' | 'audit'>('today');
+  const [exceptions, setExceptions] = useState<ExceptionItem[]>(INITIAL_EXCEPTIONS);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [notification, setNotification] = useState<string | null>(null);
+
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  // Keyboard Navigation Handlers
+  useKeyboardShortcuts({
+    onNext: () => {
+      setSelectedIndex((prev) => Math.min(prev + 1, exceptions.length - 1));
+    },
+    onPrev: () => {
+      setSelectedIndex((prev) => Math.max(prev - 1, 0));
+    },
+    onApprove: () => {
+      if (exceptions.length > 0) {
+        handleApprove(exceptions[selectedIndex].id);
+      }
+    },
+    onBatchApprove: () => {
+      handleBatchApproveTiming();
+    },
+    onSearch: () => {
+      setIsSearchOpen(true);
+    },
+    onHelp: () => {
+      setIsHelpOpen(true);
+    },
+    onEdit: () => {
+      if (exceptions.length > 0) {
+        handleEdit(exceptions[selectedIndex].id);
+      }
+    }
+  });
+
+  const handleApprove = (id: string) => {
+    const item = exceptions.find(e => e.id === id);
+    if (!item) return;
+    setExceptions((prev) => prev.filter(e => e.id !== id));
+    setSelectedIndex((prev) => Math.max(0, Math.min(prev, exceptions.length - 2)));
+    showNotification(`Approved ${item.invoiceNumber} (${item.vendorName}) - Logged to SHA-256 chain`);
+  };
+
+  const handleBatchApproveTiming = () => {
+    const timingCount = exceptions.filter(e => e.category === 'TIMING_DIFFERENCE').length;
+    if (timingCount === 0) {
+      showNotification('No timing differences in current queue.');
+      return;
+    }
+    setExceptions((prev) => prev.filter(e => e.category !== 'TIMING_DIFFERENCE'));
+    setSelectedIndex(0);
+    showNotification(`Batch approved ${timingCount} timing differences (Sec 16(2)(aa) compliant)`);
+  };
+
+  const handleEdit = (id: string) => {
+    showNotification(`Opening ledger editor for item ${id}`);
+  };
+
+  const selectedItem = exceptions[selectedIndex];
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-obsidian-950 text-neutral-100">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-obsidian-950 text-neutral-100 font-sans">
       {/* Persistent App Header & Air-Gap Sentinel */}
-      <Header clientName={activeClient} onReset={() => {}} />
+      <Header clientName={activeClient} onReset={() => setExceptions(INITIAL_EXCEPTIONS)} />
+
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed top-14 right-6 z-50 px-4 py-2.5 rounded-lg bg-emerald-600/90 text-white text-xs font-medium shadow-2xl border border-emerald-400/40 backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+          {notification}
+        </div>
+      )}
 
       {/* 3-Pane Desktop Workspace Shell */}
       <div className="flex flex-1 overflow-hidden">
         
         {/* Pane 1: Left Navigation & Client Switcher (240px) */}
-        <aside className="w-60 border-r border-obsidian-800 bg-obsidian-950/60 flex flex-col justify-between shrink-0">
+        <aside className="w-60 border-r border-obsidian-800 bg-obsidian-950/80 flex flex-col justify-between shrink-0 select-none">
           <div className="p-3 space-y-4">
             {/* Client Switcher */}
             <div>
-              <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider mb-1.5 px-2">Active Client</div>
+              <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider mb-1.5 px-2">Active Client</div>
               <div className="flex items-center gap-2 p-2 rounded-lg bg-obsidian-900 border border-obsidian-700/80 cursor-pointer hover:border-emerald-500/50 transition">
                 <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
                 <span className="text-xs font-medium text-neutral-200 truncate">ACME Manufacturing</span>
@@ -40,129 +178,206 @@ export const App: React.FC = () => {
 
             {/* Global Sections */}
             <nav className="space-y-1">
-              <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <button 
+                onClick={() => setCurrentView('today')}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
+                  currentView === 'today' 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
+                }`}
+              >
                 <Clock className="w-4 h-4" />
                 <span>Today (Dashboard)</span>
               </button>
-              <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
+
+              <button 
+                onClick={() => setIsSearchOpen(true)}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition"
+              >
                 <Search className="w-4 h-4" />
                 <span>Find Invoice</span>
                 <span className="ml-auto text-[10px] font-mono bg-obsidian-800 px-1.5 py-0.5 rounded text-neutral-400">Ctrl+K</span>
               </button>
-              <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
+
+              <button 
+                onClick={() => setCurrentView('queue')}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
+                  currentView === 'queue' 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4" />
+                <span>Exception Queue</span>
+                {exceptions.length > 0 && (
+                  <span className="ml-auto text-[10px] font-mono bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-bold">
+                    {exceptions.length}
+                  </span>
+                )}
+              </button>
+
+              <button 
+                onClick={() => setCurrentView('reconciliation')}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
+                  currentView === 'reconciliation' 
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
+                }`}
+              >
                 <CheckCircle2 className="w-4 h-4" />
                 <span>Reconciliation</span>
               </button>
-              <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
-                <AlertTriangle className="w-4 h-4" />
-                <span>Exception Queue</span>
-                <span className="ml-auto text-[10px] font-mono bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-bold">18</span>
-              </button>
-              <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
-                <FileText className="w-4 h-4" />
-                <span>Document Review</span>
-              </button>
             </nav>
 
+            {/* Statutory & Audit Section */}
             <div className="pt-2 border-t border-obsidian-800">
-              <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider mb-1.5 px-2">Statutory & Audit</div>
+              <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider mb-1.5 px-2">Statutory & Audit</div>
               <nav className="space-y-1">
-                <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
-                  <BookOpen className="w-4 h-4" />
-                  <span>Rulebook Citations</span>
-                </button>
-                <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
+                <button 
+                  onClick={() => setCurrentView('audit')}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
+                    currentView === 'audit' 
+                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
+                  }`}
+                >
                   <ShieldCheck className="w-4 h-4" />
                   <span>SHA-256 Audit Trail</span>
-                </button>
-                <button className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
-                  <History className="w-4 h-4" />
-                  <span>Firm Memory</span>
                 </button>
               </nav>
             </div>
           </div>
 
-          <div className="p-3 border-t border-obsidian-800">
-            <button className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition">
-              <Settings className="w-4 h-4" />
-              <span>Workspace Settings</span>
+          {/* Sidebar Footer */}
+          <div className="p-3 border-t border-obsidian-800 space-y-1">
+            <button 
+              onClick={() => setIsHelpOpen(true)}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition"
+            >
+              <span className="flex items-center gap-2">
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>Hotkeys Cheat Sheet</span>
+              </span>
+              <kbd className="font-mono text-[10px] bg-obsidian-800 px-1 py-0.5 rounded">?</kbd>
             </button>
           </div>
         </aside>
 
-        {/* Pane 2: Centre Worklist / Today View (Flex 1) */}
+        {/* Pane 2: Centre Worklist / Views (Flex 1) */}
         <main className="flex-1 border-r border-obsidian-800 bg-obsidian-950 p-6 overflow-y-auto">
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-neutral-100">Today: Audit & Filing Overview</h1>
-              <p className="text-xs text-neutral-400 mt-1">High-priority statutory deadlines, client queries, and active exception queues.</p>
-            </div>
+          <div className="max-w-4xl mx-auto">
+            {currentView === 'today' && (
+              <TodayDashboard 
+                onOpenQueue={() => setCurrentView('queue')} 
+                onOpenRecon={() => setCurrentView('reconciliation')} 
+              />
+            )}
 
-            {/* 3 Core Widgets */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 rounded-xl bg-obsidian-900/70 border border-obsidian-800 space-y-2">
-                <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider">Client Queries Waiting</div>
-                <div className="text-2xl font-bold font-mono text-neutral-100">5</div>
-                <div className="text-xs text-rose-400 flex items-center gap-1">
-                  <span>1 due today (18:00 IST)</span>
+            {currentView === 'queue' && (
+              <ExceptionQueue
+                items={exceptions}
+                selectedIndex={selectedIndex}
+                onSelect={(idx) => setSelectedIndex(idx)}
+                onApprove={handleApprove}
+                onBatchApproveTiming={handleBatchApproveTiming}
+              />
+            )}
+
+            {currentView === 'reconciliation' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-neutral-100">Deterministic Two-Column Reconciliation</h2>
+                <p className="text-xs text-neutral-400">
+                  482 matched pairs reconciled within +- ₹1.00 tolerance. 0 hallucinations.
+                </p>
+                <div className="p-8 rounded-xl bg-obsidian-900 border border-obsidian-800 text-center text-xs text-neutral-400">
+                  All matched invoices are cryptographically locked and exportable to Tally XML.
                 </div>
               </div>
+            )}
 
-              <div className="p-4 rounded-xl bg-obsidian-900/70 border border-obsidian-800 space-y-2">
-                <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider">Filing Deadlines This Week</div>
-                <div className="text-2xl font-bold font-mono text-neutral-100">3</div>
-                <div className="text-xs text-amber-400 flex items-center gap-1">
-                  <span>GSTR-1 due in 5 days</span>
+            {currentView === 'audit' && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-bold text-neutral-100 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  <span>Tamper-Evident SHA-256 Audit Ledger</span>
+                </h2>
+                <p className="text-xs text-neutral-400">
+                  Cryptographically chained hash tree. Every approval, rejection, and ledger override is permanently recorded.
+                </p>
+                <div className="p-4 rounded-xl bg-obsidian-900 border border-emerald-500/20 text-xs text-emerald-300 font-mono flex items-center justify-between">
+                  <span>CHAIN STATUS: VALID & IMMUTABLE (Genesis Hash: 00000000... verified)</span>
+                  <span className="bg-emerald-500/20 px-2 py-0.5 rounded">Passed 100%</span>
                 </div>
               </div>
-
-              <div className="p-4 rounded-xl bg-obsidian-900/70 border border-obsidian-800 space-y-2">
-                <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider">Auto-Reconciled Share</div>
-                <div className="text-2xl font-bold font-mono text-emerald-400">98.3%</div>
-                <div className="text-xs text-neutral-400">1,482 of 1,507 vouchers resolved</div>
-              </div>
-            </div>
-
-            {/* Quick Action Banner */}
-            <div className="p-4 rounded-xl bg-gradient-to-r from-emerald-950/40 via-obsidian-900 to-obsidian-900 border border-emerald-500/30 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-neutral-100">18 Unresolved Exceptions in Oct 2026 Batch</h3>
-                <p className="text-xs text-neutral-400 mt-0.5">14 Timing differences, 3 rate mismatches, 1 missing in GSTR-2B.</p>
-              </div>
-              <button className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-obsidian-950 text-xs font-semibold transition">
-                <span>Open Queue</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
+            )}
           </div>
         </main>
 
-        {/* Pane 3: Right Detail & Statutory Citation Loupe (440px) */}
-        <aside className="w-[440px] bg-obsidian-950/70 p-5 overflow-y-auto space-y-5 shrink-0">
-          <div>
-            <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider">Statutory Rule Defense</div>
-            <h2 className="text-sm font-semibold text-neutral-200 mt-0.5">Section 16(2)(aa) CGST Act, 2017</h2>
-          </div>
-
-          <div className="p-3.5 rounded-lg bg-obsidian-900 border border-obsidian-800 space-y-2 text-xs">
-            <div className="text-neutral-400 leading-relaxed font-serif">
-              "No registered person shall be entitled to the credit of any input tax in respect of any supply of goods or services unless the details of the invoice or debit note has been furnished by the supplier in GSTR-1 and communicated in GSTR-2B."
-            </div>
-            <div className="text-[11px] font-mono text-emerald-400">Effective: 01-Jan-2022 vide Notif 39/2021-CT</div>
-          </div>
-
-          <div className="border-t border-obsidian-800 pt-4 space-y-3">
-            <div className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider">Cryptographic Proof</div>
-            <div className="p-3 rounded-lg bg-obsidian-900/60 border border-obsidian-800 font-mono text-[11px] space-y-1.5 text-neutral-300">
-              <div className="text-neutral-400 text-[10px]">LATEST AUDIT BLOCK (#1,204)</div>
-              <div className="truncate text-emerald-400">sha256:9f83ab28e4693a901e672901309fef20...</div>
-              <div className="text-[10px] text-neutral-400">Chain integrity: 100% verified (0 tampering)</div>
-            </div>
-          </div>
+        {/* Pane 3: Right Inspection Loupe (320px) */}
+        <aside className="w-80 bg-obsidian-950/90 shrink-0">
+          <DetailInspectionLoupe
+            item={selectedItem}
+            onApprove={handleApprove}
+            onEdit={handleEdit}
+          />
         </aside>
 
       </div>
+
+      {/* Omni-Search Modal (Ctrl + K) */}
+      <OmniSearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        items={exceptions}
+        onSelectItem={(item) => {
+          setCurrentView('queue');
+          const idx = exceptions.findIndex(e => e.id === item.id);
+          if (idx !== -1) setSelectedIndex(idx);
+        }}
+      />
+
+      {/* Keyboard Shortcuts Cheat Sheet Modal (?) */}
+      {isHelpOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-xl bg-obsidian-900 border border-obsidian-700 p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-obsidian-800">
+              <h3 className="text-sm font-bold text-neutral-100">Keyboard Shortcuts Matrix</h3>
+              <button onClick={() => setIsHelpOpen(false)} className="text-neutral-400 hover:text-neutral-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="flex justify-between p-2 rounded bg-obsidian-950">
+                <span className="text-neutral-400">Next Item</span>
+                <kbd className="font-mono text-emerald-400 font-bold">J / ↓</kbd>
+              </div>
+              <div className="flex justify-between p-2 rounded bg-obsidian-950">
+                <span className="text-neutral-400">Previous Item</span>
+                <kbd className="font-mono text-emerald-400 font-bold">K / ↑</kbd>
+              </div>
+              <div className="flex justify-between p-2 rounded bg-obsidian-950">
+                <span className="text-neutral-400">Approve</span>
+                <kbd className="font-mono text-emerald-400 font-bold">A / Enter</kbd>
+              </div>
+              <div className="flex justify-between p-2 rounded bg-obsidian-950">
+                <span className="text-neutral-400">Batch Timing</span>
+                <kbd className="font-mono text-emerald-400 font-bold">Space</kbd>
+              </div>
+              <div className="flex justify-between p-2 rounded bg-obsidian-950">
+                <span className="text-neutral-400">Find Invoice</span>
+                <kbd className="font-mono text-emerald-400 font-bold">Ctrl+K / /</kbd>
+              </div>
+              <div className="flex justify-between p-2 rounded bg-obsidian-950">
+                <span className="text-neutral-400">Edit Ledger</span>
+                <kbd className="font-mono text-emerald-400 font-bold">E</kbd>
+              </div>
+            </div>
+            <div className="pt-2 text-[10px] text-neutral-400 text-center font-mono">
+              Press Esc to dismiss
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

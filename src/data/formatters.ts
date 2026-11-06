@@ -52,3 +52,11 @@ export function formatIndianDate(isoDate: string): string {
   const [year, month, day] = isoDate.split('-');
   return `${day}/${month}/${year}`;
 }
+
+/**
+ * Formats integer paise into Indian currency string
+ * e.g. 5310000 -> "₹ 53,100.00"
+ */
+export function formatPaiseToINR(paise: number): string {
+  return formatINR(paise / 100);
+}
