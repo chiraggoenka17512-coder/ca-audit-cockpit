@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 export interface ShortcutHandlers {
   onNext?: () => void;
@@ -12,78 +12,93 @@ export interface ShortcutHandlers {
   onUndo?: () => void;
 }
 
-export const useKeyboardShortcuts = (handlers: ShortcutHandlers) => {
+export interface ShortcutOptions {
+  enabled?: boolean;
+}
+
+export const useKeyboardShortcuts = (
+  handlers: ShortcutHandlers,
+  options: ShortcutOptions = { enabled: true }
+) => {
+  // Store handlers in a ref to decouple listener subscription from render cycles
+  const handlersRef = useRef(handlers);
   useEffect(() => {
+    handlersRef.current = handlers;
+  });
+
+  useEffect(() => {
+    if (options.enabled === false) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore keystrokes when typing inside text inputs
       const target = e.target as HTMLElement;
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
+      // Guard against typing in form fields or contenteditable nodes
+      if (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
         if (e.key === 'Escape') {
           target.blur();
         }
         return;
       }
 
-      // Omni-search shortcut: Ctrl+K or /
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        handlers.onSearch?.();
-        return;
-      }
-      if (e.key === '/') {
-        e.preventDefault();
-        handlers.onSearch?.();
-        return;
-      }
+      const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
+      const keyLower = e.key.toLowerCase();
 
-      // Help cheat sheet: ?
-      if (e.key === '?') {
+      // Omni-search shortcut: Ctrl+K or / (without modifiers)
+      if ((e.ctrlKey || e.metaKey) && keyLower === 'k') {
         e.preventDefault();
-        handlers.onHelp?.();
+        handlersRef.current.onSearch?.();
+        return;
+      }
+      if (!hasModifier && e.key === '/') {
+        e.preventDefault();
+        handlersRef.current.onSearch?.();
         return;
       }
 
-      // Navigation: J (down / next) and K (up / prev)
-      if (e.key === 'j' || e.key === 'ArrowDown') {
+      // Help cheat sheet: ? (Shift+/ without Ctrl/Alt/Meta)
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key === '?') {
         e.preventDefault();
-        handlers.onNext?.();
-      } else if (e.key === 'k' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        handlers.onPrev?.();
+        handlersRef.current.onHelp?.();
+        return;
       }
 
-      // Actions: A / Enter (Approve)
-      if (e.key === 'a' || e.key === 'Enter') {
+      // Navigation: J / Down Arrow, K / Up Arrow (NO modifiers allowed)
+      if (!hasModifier && (keyLower === 'j' || e.key === 'ArrowDown')) {
         e.preventDefault();
-        handlers.onApprove?.();
+        handlersRef.current.onNext?.();
+        return;
+      }
+      if (!hasModifier && (keyLower === 'k' || e.key === 'ArrowUp')) {
+        e.preventDefault();
+        handlersRef.current.onPrev?.();
+        return;
       }
 
-      // Reject: R
-      if (e.key === 'r') {
+      // Approve: 'A' or 'Enter' (STRICTLY guarded against Ctrl/Cmd/Alt to prevent accidental triggers on Ctrl+A)
+      if (!hasModifier && (keyLower === 'a' || e.key === 'Enter')) {
         e.preventDefault();
-        handlers.onReject?.();
+        handlersRef.current.onApprove?.();
+        return;
       }
 
-      // Edit: E
-      if (e.key === 'e') {
-        e.preventDefault();
-        handlers.onEdit?.();
-      }
-
-      // Space: Batch Approve
-      if (e.key === ' ') {
-        e.preventDefault();
-        handlers.onBatchApprove?.();
-      }
-
-      // Undo: U
-      if (e.key === 'u') {
-        e.preventDefault();
-        handlers.onUndo?.();
+      // Single-key letters: strictly no modifiers
+      if (!hasModifier) {
+        if (keyLower === 'r') {
+          e.preventDefault();
+          handlersRef.current.onReject?.();
+        } else if (keyLower === 'e') {
+          e.preventDefault();
+          handlersRef.current.onEdit?.();
+        } else if (keyLower === 'u') {
+          e.preventDefault();
+          handlersRef.current.onUndo?.();
+        } else if (e.key === ' ') {
+          e.preventDefault();
+          handlersRef.current.onBatchApprove?.();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handlers]);
+  }, [options.enabled]);
 };

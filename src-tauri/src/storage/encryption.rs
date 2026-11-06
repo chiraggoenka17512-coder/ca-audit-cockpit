@@ -8,8 +8,10 @@ use aes_gcm::{
 use aes_gcm::aead::rand_core::RngCore;
 use std::path::{Path, PathBuf};
 use std::fs;
+use std::sync::Mutex;
 use thiserror::Error;
 use rusqlite::{Connection, params};
+use crate::engine::money::validate_gstin;
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -27,11 +29,17 @@ pub enum StorageError {
 
     #[error("Invalid key length: expected 32 bytes (256 bits), got {0}")]
     InvalidKeyLength(usize),
+
+    #[error("Path traversal security violation: invalid client directory '{0}'")]
+    PathTraversal(String),
+
+    #[error("Client GSTIN validation error: {0}")]
+    InvalidClientGstin(String),
 }
 
-/// AES-GCM-256 Engine with 96-bit Nonce Generation
+/// AES-GCM-256 Engine with Pre-Computed Key Schedule and 96-bit Nonce Generation
 pub struct EncryptedStore {
-    key: Key<Aes256Gcm>,
+    cipher: Aes256Gcm,
 }
 
 impl EncryptedStore {
@@ -40,19 +48,19 @@ impl EncryptedStore {
         if key_bytes.len() != 32 {
             return Err(StorageError::InvalidKeyLength(key_bytes.len()));
         }
-        let key = *Key::<Aes256Gcm>::from_slice(key_bytes);
-        Ok(Self { key })
+        let key = Key::<Aes256Gcm>::from_slice(key_bytes);
+        let cipher = Aes256Gcm::new(key);
+        Ok(Self { cipher })
     }
 
     /// Encrypts plaintext bytes using AES-256-GCM.
     /// Prepends the randomly generated 12-byte (96-bit) nonce to the ciphertext output.
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, StorageError> {
-        let cipher = Aes256Gcm::new(&self.key);
         let mut nonce_bytes = [0u8; 12];
         OsRng.fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
 
-        let ciphertext = cipher
+        let ciphertext = self.cipher
             .encrypt(nonce, plaintext)
             .map_err(|e| StorageError::EncryptionFailed(format!("{:?}", e)))?;
 
@@ -64,31 +72,40 @@ impl EncryptedStore {
     }
 
     /// Decrypts payload produced by `encrypt`.
-    /// Extracts the prepended 12-byte nonce and verifies the authentication tag.
+    /// Extracts the prepended 12-byte nonce and verifies the Poly1305 authentication tag.
     pub fn decrypt(&self, payload: &[u8]) -> Result<Vec<u8>, StorageError> {
         if payload.len() < 12 {
             return Err(StorageError::DecryptionFailed("Payload too short to contain nonce".into()));
         }
         let (nonce_bytes, ciphertext) = payload.split_at(12);
         let nonce = Nonce::from_slice(nonce_bytes);
-        let cipher = Aes256Gcm::new(&self.key);
 
-        cipher
+        self.cipher
             .decrypt(nonce, ciphertext)
             .map_err(|e| StorageError::DecryptionFailed(format!("{:?}", e)))
     }
 }
 
-/// Manages per-client encrypted SQLite workspaces
+/// Manages per-client encrypted SQLite workspaces with strict path isolation
 pub struct ClientWorkspace {
     pub client_gstin: String,
+    pub base_dir: PathBuf,
     pub db_path: PathBuf,
+    conn: Mutex<Connection>,
     store: EncryptedStore,
 }
 
 impl ClientWorkspace {
     /// Opens or creates an isolated workspace database for a client
     pub fn init(base_dir: &Path, client_gstin: &str, key_bytes: &[u8]) -> Result<Self, StorageError> {
+        // Enforce strict GSTIN validation & eliminate path traversal
+        validate_gstin(client_gstin)
+            .map_err(|e| StorageError::InvalidClientGstin(e.to_string()))?;
+
+        if Path::new(client_gstin).components().count() != 1 {
+            return Err(StorageError::PathTraversal(client_gstin.to_string()));
+        }
+
         let store = EncryptedStore::new(key_bytes)?;
         let client_dir = base_dir.join(client_gstin);
         fs::create_dir_all(&client_dir)?;
@@ -109,7 +126,9 @@ impl ClientWorkspace {
 
         Ok(Self {
             client_gstin: client_gstin.to_string(),
+            base_dir: base_dir.to_path_buf(),
             db_path,
+            conn: Mutex::new(conn),
             store,
         })
     }
@@ -117,8 +136,8 @@ impl ClientWorkspace {
     /// Stores a sensitive record after encrypting with AES-256-GCM
     pub fn insert_record(&self, id: &str, record_type: &str, plaintext: &[u8]) -> Result<(), StorageError> {
         let encrypted = self.store.encrypt(plaintext)?;
-        let conn = Connection::open(&self.db_path)?;
         let now = chrono::Utc::now().timestamp();
+        let conn = self.conn.lock().unwrap();
 
         conn.execute(
             "INSERT OR REPLACE INTO client_records (id, record_type, encrypted_payload, created_at)
@@ -131,7 +150,7 @@ impl ClientWorkspace {
 
     /// Retrieves and decrypts a record
     pub fn get_record(&self, id: &str) -> Result<Option<Vec<u8>>, StorageError> {
-        let conn = Connection::open(&self.db_path)?;
+        let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare("SELECT encrypted_payload FROM client_records WHERE id = ?1")?;
         let mut rows = stmt.query(params![id])?;
 
@@ -144,12 +163,11 @@ impl ClientWorkspace {
         }
     }
 
-    /// Deletes the entire client workspace directory securely (air-gapped deletion)
+    /// Deletes the client workspace securely, strictly verifying path safety
     pub fn delete_workspace(self) -> Result<(), StorageError> {
-        if let Some(parent) = self.db_path.parent() {
-            if parent.exists() {
-                fs::remove_dir_all(parent)?;
-            }
+        let client_dir = self.base_dir.join(&self.client_gstin);
+        if client_dir.exists() && client_dir.starts_with(&self.base_dir) && client_dir != self.base_dir {
+            fs::remove_dir_all(&client_dir)?;
         }
         Ok(())
     }
@@ -167,8 +185,6 @@ mod tests {
 
         let secret = b"Client: Tata Motors Ltd, PAN: AAATT1234T, GSTIN: 27AAATT1234T1Z5";
         let encrypted = store.encrypt(secret).unwrap();
-
-        // Ciphertext should not match plaintext
         assert_ne!(&encrypted[12..], secret);
 
         let decrypted = store.decrypt(&encrypted).unwrap();
@@ -184,9 +200,8 @@ mod tests {
         let enc1 = store.encrypt(data).unwrap();
         let enc2 = store.encrypt(data).unwrap();
 
-        // Must generate different nonces and different ciphertexts for the exact same input
         assert_ne!(enc1, enc2);
-        assert_ne!(&enc1[0..12], &enc2[0..12]); // nonces differ
+        assert_ne!(&enc1[0..12], &enc2[0..12]);
     }
 
     #[test]
@@ -199,7 +214,6 @@ mod tests {
 
         let encrypted = store1.encrypt(b"Confidential financial statement").unwrap();
         let result = store2.decrypt(&encrypted);
-
         assert!(result.is_err());
     }
 
@@ -213,7 +227,6 @@ mod tests {
         let rec = ws.get_record("inv_01").unwrap().unwrap();
         assert_eq!(rec, b"Vendor: Reliance, Tax: 18000");
 
-        // Verify the raw database file on disk does not contain the plaintext
         let raw_db_bytes = fs::read(&ws.db_path).unwrap();
         let search_target = b"Vendor: Reliance";
         assert!(

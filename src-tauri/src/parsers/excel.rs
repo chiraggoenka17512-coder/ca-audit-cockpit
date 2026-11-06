@@ -9,8 +9,13 @@ use serde::{Serialize, Deserialize};
 use thiserror::Error;
 use crate::engine::money::{Paise, parse_paise, parse_indian_date, validate_gstin};
 
+pub const MAX_EXCEL_FILE_SIZE: usize = 50 * 1024 * 1024; // 50 MB limit
+
 #[derive(Error, Debug)]
 pub enum ParserError {
+    #[error("File size exceeds 50MB security quota (Zip bomb prevention)")]
+    FileTooLarge,
+
     #[error("Calamine workbook error: {0}")]
     CalamineError(String),
 
@@ -19,9 +24,6 @@ pub enum ParserError {
 
     #[error("Required header '{0}' could not be mapped from columns")]
     MissingRequiredHeader(String),
-
-    #[error("CSV parsing error: {0}")]
-    CsvError(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -58,6 +60,10 @@ pub struct ExcelRegisterParser;
 impl ExcelRegisterParser {
     /// Parses an in-memory .xlsx or .xlsb buffer into structured invoice rows
     pub fn parse_bytes(buffer: &[u8]) -> Result<Vec<ParsedInvoiceRow>, ParserError> {
+        if buffer.len() > MAX_EXCEL_FILE_SIZE {
+            return Err(ParserError::FileTooLarge);
+        }
+
         let cursor = Cursor::new(buffer);
         let mut workbook: Xlsx<_> = open_workbook_from_rs(cursor)
             .map_err(|e| ParserError::CalamineError(e.to_string()))?;
@@ -109,7 +115,7 @@ impl ExcelRegisterParser {
                 }
             };
 
-            // Parse Paise amounts
+            // Parse Paise amounts safely
             let taxable = Self::parse_cell_paise(col_map.taxable_value.and_then(|i| row.get(i)), &mut errors, "Taxable");
             let cgst = Self::parse_cell_paise(col_map.cgst.and_then(|i| row.get(i)), &mut errors, "CGST");
             let sgst = Self::parse_cell_paise(col_map.sgst.and_then(|i| row.get(i)), &mut errors, "SGST");
@@ -149,11 +155,23 @@ impl ExcelRegisterParser {
 
     fn parse_cell_paise(cell: Option<&Data>, errors: &mut Vec<String>, field_name: &str) -> Paise {
         match cell {
-            Some(Data::Float(f)) => {
-                // Round safely to paise
-                Paise((f * 100.0).round() as i64)
+            Some(Data::Float(f)) if f.is_finite() => {
+                let rounded = (f * 100.0).round();
+                if rounded >= i64::MIN as f64 && rounded <= i64::MAX as f64 {
+                    Paise(rounded as i64)
+                } else {
+                    errors.push(format!("{}: Amount exceeds numeric limit", field_name));
+                    Paise::ZERO
+                }
             }
-            Some(Data::Int(i)) => Paise(i * 100),
+            Some(Data::Int(i)) => {
+                if let Some(val) = i.checked_mul(100) {
+                    Paise(val)
+                } else {
+                    errors.push(format!("{}: Amount overflow", field_name));
+                    Paise::ZERO
+                }
+            }
             Some(Data::String(s)) => {
                 match parse_paise(s) {
                     Ok(p) => p,

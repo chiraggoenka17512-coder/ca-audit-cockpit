@@ -1,11 +1,10 @@
-import React from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { 
   AlertTriangle, 
   Check, 
   Layers, 
   Clock, 
   FileEdit, 
-  HelpCircle,
   ShieldAlert
 } from 'lucide-react';
 import { formatPaiseToINR } from '../../data/formatters';
@@ -41,10 +40,16 @@ export const ExceptionQueue: React.FC<ExceptionQueueProps> = ({
   onApprove,
   onBatchApproveTiming
 }) => {
-  const timingItems = items.filter(i => i.category === 'TIMING_DIFFERENCE');
-  const typoItems = items.filter(i => i.category === 'INVOICE_TYPO');
-  const taxItems = items.filter(i => i.category === 'TAX_RATE_MISMATCH');
-  const missingItems = items.filter(i => i.category === 'MISSING_IN_2B');
+  const timingItems = useMemo(
+    () => items.filter(i => i.category === 'TIMING_DIFFERENCE'),
+    [items]
+  );
+
+  const selectedRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selectedIndex]);
 
   return (
     <div className="space-y-6">
@@ -64,8 +69,9 @@ export const ExceptionQueue: React.FC<ExceptionQueueProps> = ({
 
         {timingItems.length > 0 && (
           <button
+            type="button"
             onClick={onBatchApproveTiming}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition shadow-lg shadow-emerald-950/40"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white text-xs font-medium transition-all duration-75 shadow-lg shadow-emerald-950/40"
           >
             <Layers className="w-4 h-4" />
             <span>Batch Approve {timingItems.length} Timing Differences</span>
@@ -75,14 +81,21 @@ export const ExceptionQueue: React.FC<ExceptionQueueProps> = ({
       </div>
 
       {/* Exception List */}
-      <div className="space-y-3">
+      <div className="space-y-3" role="listbox" aria-label="Exceptions list">
         {items.map((item, idx) => {
           const isSelected = idx === selectedIndex;
           return (
             <div
               key={item.id}
+              ref={isSelected ? selectedRef : undefined}
+              role="option"
+              aria-selected={isSelected}
+              tabIndex={isSelected ? 0 : -1}
               onClick={() => onSelect(idx)}
-              className={`p-4 rounded-xl border cursor-pointer transition flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onApprove(item.id);
+              }}
+              className={`p-4 rounded-xl border cursor-pointer transition-all duration-75 flex flex-col md:flex-row md:items-center justify-between gap-4 ${
                 isSelected 
                   ? 'bg-obsidian-900 border-emerald-500/80 shadow-lg shadow-emerald-950/20 ring-1 ring-emerald-500/30' 
                   : 'bg-obsidian-900/60 border-obsidian-800 hover:border-obsidian-700'
@@ -123,11 +136,12 @@ export const ExceptionQueue: React.FC<ExceptionQueueProps> = ({
                 </div>
 
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     onApprove(item.id);
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-medium transition"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-[0.98] text-emerald-400 border border-emerald-500/30 text-xs font-medium transition-all duration-75"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>Approve</span>

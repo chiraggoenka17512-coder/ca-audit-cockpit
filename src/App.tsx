@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { 
   Building2, 
@@ -6,10 +6,8 @@ import {
   Clock, 
   CheckCircle2, 
   AlertTriangle, 
-  FileText, 
   BookOpen, 
   ShieldCheck, 
-  History, 
   Settings,
   HelpCircle,
   X
@@ -82,7 +80,7 @@ const INITIAL_EXCEPTIONS: ExceptionItem[] = [
 ];
 
 export const App: React.FC = () => {
-  const [activeClient, setActiveClient] = useState('ACME Manufacturing Pvt Ltd (27AABCA1234F1Z5)');
+  const [activeClient] = useState('ACME Manufacturing Pvt Ltd (27AABCA1234F1Z5)');
   const [currentView, setCurrentView] = useState<'today' | 'queue' | 'reconciliation' | 'audit'>('today');
   const [exceptions, setExceptions] = useState<ExceptionItem[]>(INITIAL_EXCEPTIONS);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -90,49 +88,46 @@ export const App: React.FC = () => {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
-  const showNotification = (msg: string) => {
+  // Manage toast timers in a ref to avoid race conditions on rapid actions
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showNotification = useCallback((msg: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
-  };
+    toastTimerRef.current = setTimeout(() => {
+      setNotification(null);
+      toastTimerRef.current = null;
+    }, 3000);
+  }, []);
 
-  // Keyboard Navigation Handlers
-  useKeyboardShortcuts({
-    onNext: () => {
-      setSelectedIndex((prev) => Math.min(prev + 1, exceptions.length - 1));
-    },
-    onPrev: () => {
-      setSelectedIndex((prev) => Math.max(prev - 1, 0));
-    },
-    onApprove: () => {
-      if (exceptions.length > 0) {
-        handleApprove(exceptions[selectedIndex].id);
-      }
-    },
-    onBatchApprove: () => {
-      handleBatchApproveTiming();
-    },
-    onSearch: () => {
-      setIsSearchOpen(true);
-    },
-    onHelp: () => {
-      setIsHelpOpen(true);
-    },
-    onEdit: () => {
-      if (exceptions.length > 0) {
-        handleEdit(exceptions[selectedIndex].id);
-      }
-    }
-  });
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
-  const handleApprove = (id: string) => {
-    const item = exceptions.find(e => e.id === id);
-    if (!item) return;
-    setExceptions((prev) => prev.filter(e => e.id !== id));
+  // Hotkeys Cheat Sheet Escape Listener
+  useEffect(() => {
+    if (!isHelpOpen) return;
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsHelpOpen(false);
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, [isHelpOpen]);
+
+  const handleApprove = useCallback((id: string) => {
+    setExceptions((prev) => {
+      const item = prev.find(e => e.id === id);
+      if (item) {
+        showNotification(`Approved ${item.invoiceNumber} (${item.vendorName}) - Logged to SHA-256 chain`);
+      }
+      return prev.filter(e => e.id !== id);
+    });
     setSelectedIndex((prev) => Math.max(0, Math.min(prev, exceptions.length - 2)));
-    showNotification(`Approved ${item.invoiceNumber} (${item.vendorName}) - Logged to SHA-256 chain`);
-  };
+  }, [exceptions.length, showNotification]);
 
-  const handleBatchApproveTiming = () => {
+  const handleBatchApproveTiming = useCallback(() => {
     const timingCount = exceptions.filter(e => e.category === 'TIMING_DIFFERENCE').length;
     if (timingCount === 0) {
       showNotification('No timing differences in current queue.');
@@ -141,11 +136,33 @@ export const App: React.FC = () => {
     setExceptions((prev) => prev.filter(e => e.category !== 'TIMING_DIFFERENCE'));
     setSelectedIndex(0);
     showNotification(`Batch approved ${timingCount} timing differences (Sec 16(2)(aa) compliant)`);
-  };
+  }, [exceptions, showNotification]);
 
-  const handleEdit = (id: string) => {
+  const handleEdit = useCallback((id: string) => {
     showNotification(`Opening ledger editor for item ${id}`);
-  };
+  }, [showNotification]);
+
+  // Keyboard Shortcuts: strictly disabled when modals are open
+  useKeyboardShortcuts(
+    {
+      onNext: () => setSelectedIndex((prev) => Math.min(prev + 1, exceptions.length - 1)),
+      onPrev: () => setSelectedIndex((prev) => Math.max(prev - 1, 0)),
+      onApprove: () => {
+        if (exceptions.length > 0 && exceptions[selectedIndex]) {
+          handleApprove(exceptions[selectedIndex].id);
+        }
+      },
+      onBatchApprove: handleBatchApproveTiming,
+      onSearch: () => setIsSearchOpen(true),
+      onHelp: () => setIsHelpOpen(true),
+      onEdit: () => {
+        if (exceptions.length > 0 && exceptions[selectedIndex]) {
+          handleEdit(exceptions[selectedIndex].id);
+        }
+      }
+    },
+    { enabled: !isSearchOpen && !isHelpOpen }
+  );
 
   const selectedItem = exceptions[selectedIndex];
 
@@ -154,9 +171,13 @@ export const App: React.FC = () => {
       {/* Persistent App Header & Air-Gap Sentinel */}
       <Header clientName={activeClient} onReset={() => setExceptions(INITIAL_EXCEPTIONS)} />
 
-      {/* Notification Toast */}
+      {/* Accessible Notification Toast with ARIA Live Region */}
       {notification && (
-        <div className="fixed top-14 right-6 z-50 px-4 py-2.5 rounded-lg bg-emerald-600/90 text-white text-xs font-medium shadow-2xl border border-emerald-400/40 backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+        <div 
+          role="status" 
+          aria-live="polite"
+          className="fixed top-14 right-6 z-50 px-4 py-2.5 rounded-lg bg-emerald-600/90 text-white text-xs font-medium shadow-2xl border border-emerald-400/40 backdrop-blur-md animate-in fade-in slide-in-from-top-2"
+        >
           {notification}
         </div>
       )}
@@ -179,6 +200,7 @@ export const App: React.FC = () => {
             {/* Global Sections */}
             <nav className="space-y-1">
               <button 
+                type="button"
                 onClick={() => setCurrentView('today')}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
                   currentView === 'today' 
@@ -191,6 +213,7 @@ export const App: React.FC = () => {
               </button>
 
               <button 
+                type="button"
                 onClick={() => setIsSearchOpen(true)}
                 className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition"
               >
@@ -200,6 +223,7 @@ export const App: React.FC = () => {
               </button>
 
               <button 
+                type="button"
                 onClick={() => setCurrentView('queue')}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
                   currentView === 'queue' 
@@ -217,6 +241,7 @@ export const App: React.FC = () => {
               </button>
 
               <button 
+                type="button"
                 onClick={() => setCurrentView('reconciliation')}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
                   currentView === 'reconciliation' 
@@ -234,6 +259,7 @@ export const App: React.FC = () => {
               <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider mb-1.5 px-2">Statutory & Audit</div>
               <nav className="space-y-1">
                 <button 
+                  type="button"
                   onClick={() => setCurrentView('audit')}
                   className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
                     currentView === 'audit' 
@@ -251,6 +277,7 @@ export const App: React.FC = () => {
           {/* Sidebar Footer */}
           <div className="p-3 border-t border-obsidian-800 space-y-1">
             <button 
+              type="button"
               onClick={() => setIsHelpOpen(true)}
               className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition"
             >
@@ -338,11 +365,24 @@ export const App: React.FC = () => {
 
       {/* Keyboard Shortcuts Cheat Sheet Modal (?) */}
       {isHelpOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-xl bg-obsidian-900 border border-obsidian-700 p-5 space-y-4">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setIsHelpOpen(false)}
+        >
+          <div 
+            role="dialog"
+            aria-modal="true"
+            aria-label="Keyboard Shortcuts Matrix"
+            className="w-full max-w-md rounded-xl bg-obsidian-900 border border-obsidian-700 p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between pb-2 border-b border-obsidian-800">
               <h3 className="text-sm font-bold text-neutral-100">Keyboard Shortcuts Matrix</h3>
-              <button onClick={() => setIsHelpOpen(false)} className="text-neutral-400 hover:text-neutral-200">
+              <button 
+                type="button"
+                onClick={() => setIsHelpOpen(false)} 
+                className="text-neutral-400 hover:text-neutral-200 transition active:scale-95"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -373,7 +413,7 @@ export const App: React.FC = () => {
               </div>
             </div>
             <div className="pt-2 text-[10px] text-neutral-400 text-center font-mono">
-              Press Esc to dismiss
+              Press Esc or click outside to dismiss
             </div>
           </div>
         </div>
