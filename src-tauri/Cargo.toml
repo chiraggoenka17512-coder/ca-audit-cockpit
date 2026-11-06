@@ -1,0 +1,37 @@
+[package]
+name = "recon-os-core"
+version = "0.1.0"
+description = "ReconOS: Air-Gapped Financial Intelligence & Audit Defense Core Engine"
+authors = ["ReconOS Team <chirag@reconos.local>"]
+edition = "2021"
+
+[lib]
+name = "recon_os_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+tauri-plugin-opener = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+sha2 = "0.10"
+aes-gcm = "0.10"
+calamine = "0.26"
+strsim = "0.11"
+rayon = "1.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
+chrono = { version = "0.4", features = ["serde"] }
+quick-xml = "0.37"
+ts-rs = { version = "10.0", features = ["chrono-impl"] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true

@@ -21,6 +21,20 @@ Instead of sending confidential client bank statements, PANs, and vendor ledgers
 
 ---
 
+## 🎨 UI & UX Specifications (Reverse-Engineered Benchmarks)
+
+The user interface of ReconOS is thoroughly documented in [`docs/teardowns/`](./docs/teardowns/README.md). It synthesizes reverse-engineering teardowns across 7 industry-leading products:
+- [**00_reconos_master_ui_spec.md**](./docs/teardowns/00_reconos_master_ui_spec.md): **The Master UI & Interaction Specification for ReconOS** — synthesizes all teardowns into the 3-Pane desktop cockpit, Today dashboard, universal omni-search, grouped exception queues with the SA 320 materiality speed-bump, dated statutory rule defense, and hotkey matrix.
+- [**01_xero_qbo_reconciliation.md**](./docs/teardowns/01_xero_qbo_reconciliation.md): Xero & QuickBooks Online Two-Column Reconciliation
+- [**02_dext_hubdoc_document_review.md**](./docs/teardowns/02_dext_hubdoc_document_review.md): Dext & Hubdoc Source-Linked Document Review
+- [**03_tally_suvit_taxone.md**](./docs/teardowns/03_tally_suvit_taxone.md): Tally Prime, Suvit & Vyapar TaxOne Indian Accounting Ergonomics
+- [**04_superhuman_linear_triage.md**](./docs/teardowns/04_superhuman_linear_triage.md): Superhuman & Linear High-Velocity Keyboard Triage
+- [**05_karbon_canopy_practice_management.md**](./docs/teardowns/05_karbon_canopy_practice_management.md): Karbon & Canopy Practice Management 3-Pane Layout
+- [**06_vicai_docyt_autonomous_accounting.md**](./docs/teardowns/06_vicai_docyt_autonomous_accounting.md): Vic.ai & Docyt Autonomous Accounting & Exception Queues
+- [**07_spotlight_alfred_raycast_omnisearch.md**](./docs/teardowns/07_spotlight_alfred_raycast_omnisearch.md): Spotlight, Alfred & Raycast "Find Invoice" Omni-Search
+
+---
+
 ## 🎯 Core Innovations & USPs
 
 1. **Confidentiality by Design (Not by Policy):**
@@ -52,10 +66,21 @@ Instead of sending confidential client bank statements, PANs, and vendor ledgers
 
 ---
 
+## 🦀 Rust Ergonomics: Making Rust Development Fast & Safe
+
+Writing Rust is made approachable and productive through battle-tested crates and workflow tooling:
+1. **`ts-rs` (Automated Type Sync):** Automatically exports Rust structs directly into TypeScript types (`npm run build:types`), ensuring zero frontend-backend type drift.
+2. **`anyhow` & `thiserror`:** Eliminates tedious manual error boilerplate with ergonomic error propagation.
+3. **`cargo-check` & `cargo-watch`:** Sub-second compile-checking without waiting for full LLVM codegen (`cargo watch -x check`).
+4. **`clippy`:** Built-in compiler linter that catches 90% of beginner lifetime and borrow-checker traps before they become bugs.
+5. **`calamine`:** Blazing fast, zero-alloc in-memory Excel parsing (40x faster than openpyxl).
+
+---
+
 ## 📁 Repository Layout
 
 ```
-recon-os/
+ca-audit-cockpit/
 ├── src/                        # [CHIRAG] React + Tailwind UI (Tauri Webview)
 │   ├── components/             # 3-Pane layout, Today View, Exception Queue, Loupe
 │   └── types/                  # Master TypeScript contracts
@@ -72,6 +97,15 @@ recon-os/
 │   ├── synthetic/              # Python synthetic invoice generator (Faker en_IN)
 │   └── eval/                   # Model benchmark harness (FER / CER scoring)
 └── docs/                       # Architecture, UI Specs & Team Contracts
+    └── teardowns/              # Master UI Specs & 7 Reverse-Engineering Teardowns
+        ├── 00_reconos_master_ui_spec.md
+        ├── 01_xero_qbo_reconciliation.md
+        ├── 02_dext_hubdoc_document_review.md
+        ├── 03_tally_suvit_taxone.md
+        ├── 04_superhuman_linear_triage.md
+        ├── 05_karbon_canopy_practice_management.md
+        ├── 06_vicai_docyt_autonomous_accounting.md
+        └── 07_spotlight_alfred_raycast_omnisearch.md
 ```
 
 ---
@@ -86,6 +120,9 @@ cd ca-audit-cockpit
 # Install frontend dependencies
 npm install
 
-# Run Tauri in development mode (launches native desktop shell)
+# Run Vite in dev mode (for UI development without Rust compiler)
+npm run dev
+
+# Run Tauri in desktop dev mode (when Rust is installed)
 npm run tauri dev
 ```
