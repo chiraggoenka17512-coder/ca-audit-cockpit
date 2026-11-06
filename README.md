@@ -1,29 +1,42 @@
-# CA Audit & Reconciliation Cockpit ⚖️
+# CA Audit & Reconciliation Cockpit (ReconOS) ⚖️
 
 > **Air-Gapped Autonomous Financial Intelligence & Audit Defense for Indian CAs**
 
-An on-device, privacy-first reconciliation and audit review system designed specifically for Indian Chartered Accountants, tax practitioners, and audit associates. 
+ReconOS is an on-device, privacy-first desktop application designed specifically for Indian Chartered Accountants, tax practitioners, and audit associates. 
 
-Instead of sending confidential client bank statements, PANs, and vendor ledgers to third-party cloud servers, this tool operates **100% locally with zero network outbound traffic**, offering deterministic compliance checks, an exception-first review workflow, on-device firm learning, and audit-defensible justifications.
+Instead of sending confidential client bank statements, PANs, and vendor ledgers to third-party cloud servers, ReconOS operates **100% locally with zero network outbound traffic**, offering deterministic compliance checks, an exception-first review workflow, on-device firm learning, and audit-defensible justifications.
+
+---
+
+## 🏗️ Polyglot Architecture: Right Tool for the Right Job
+
+| Layer | Language / Tech | Why This Tool? |
+| :--- | :--- | :--- |
+| **Desktop Shell** | **Rust (Tauri v2)** | Small (~15MB), native Windows performance, 200ms boot, zero Electron bloat. |
+| **Storage, Encryption & Audit Log** | **Rust (`ring`, `sha2`, `rusqlite`)** | Strict memory safety, zero buffer overflows, audit-grade local AES-GCM-256 encryption. |
+| **Deterministic Matching & Tax Rules** | **Rust (`rayon`, `strsim`, `calamine`)** | Blazing-fast parallel CPU execution; reconciles 50,000 invoices in <200ms with zero hallucination. |
+| **Local Model Inference** | **Rust (Candle / `llama-cpp-rs`)** | Self-contained on-device inference without needing a separate Python runtime. |
+| **Model Fine-Tuning & Evaluation** | **Python (PyTorch, Unsloth, Hugging Face)** | Mature ML ecosystem for LoRA fine-tuning and export to GGUF/Candle. |
+| **User Interface (3-Pane Cockpit)** | **TypeScript (React / Tailwind)** | Rapid, flexible UI development with rich micro-interactions and keyboard accessibility. |
 
 ---
 
 ## 🎯 Core Innovations & USPs
 
 1. **Confidentiality by Design (Not by Policy):**
-   * Client financial data is encrypted locally with `AES-GCM-256`.
-   * The AI and rule engines run entirely on-device. Zero network traffic (`0 KB outbound`).
+   * Client financial data is encrypted on-device with `AES-GCM-256`.
+   * The application has no outbound network path for client data (`0 KB outbound`).
 2. **Exception-First Review Workflow:**
-   * Instead of dumping 500 flat rows, the UI groups unmatched transactions by root cause:
+   * Replaces flat spreadsheets with an exception queue grouped by root cause:
      * *Timing Differences* (Dates within 30-day window) -> 1-Click Batch Approve.
      * *Invoice Number Typos* (Levenshtein distance matching e.g. `/` vs `-`).
      * *Tax Rate Discrepancies* (Books booked at 12% vs GSTR-2B filed at 18%).
      * *Statutory Risk Flags* (ITC at risk under Section 16(2)(aa)).
 3. **Local Firm Memory (On-Device Learning):**
-   * Learns per-firm classification habits locally. When a CA overrides a vendor's ledger head or TDS section, the system records it in an isolated local store and auto-adapts to remaining unreviewed items without cloud telemetry.
-4. **Audit Defense Trail:**
-   * Every extraction, match, and rule check generates a plain-language explanation (e.g., *"Matched: GSTIN and amount agree; date differs by 3 days within allowed window"*).
-   * Every approval is cryptographically signed in a tamper-evident **SHA-256 hash chain**.
+   * Learns per-firm classification habits locally without cloud telemetry. Overriding a vendor's ledger head updates the local memory and auto-adapts remaining unreviewed items.
+4. **Tamper-Evident Audit Defense Trail:**
+   * Every extraction, match, and rule check generates a plain-language explanation.
+   * Every approval is cryptographically signed into an immutable **SHA-256 hash chain**.
 5. **Tally Prime Ready:**
    * 1-Click export of valid `<TALLYMESSAGE>` XML for direct import into Tally Prime.
 
@@ -31,27 +44,34 @@ Instead of sending confidential client bank statements, PANs, and vendor ledgers
 
 ## 👥 The 3-Person Team Breakdown
 
-This repository is divided into 3 independent modules to allow parallel development with zero merge conflicts. For full task specs, see [TEAM_TASKS.md](./TEAM_TASKS.md).
-
-| Member | Assigned Area | Key Responsibilities |
-| :--- | :--- | :--- |
-| **Chirag** | **Frontend Cockpit & Model Fine-Tuning Lead** | • Builds the entire UI (Cockpit, Exception Queue, Inspection Loupe, Air-Gap Sentinel)<br>• Fine-tunes the local VLM/LLM for Indian document extraction (LoRA/QLoRA)<br>• Integrates the engine & data pipelines into the final app |
-| **Vihaan** | **Data Ingestion, Synthetic Generation & Model Eval** | • Builds multi-format parsers (Excel Purchase Register, GSTR-2B JSON, Bank CSV)<br>• Generates synthetic training datasets using Python Faker (`en_IN`) & HTML templates<br>• Establishes the 200-document Gold Test Set & evaluation harness |
-| **Rajveer** | **Deterministic Engine & Statutory Compliance** | • Builds the mathematical reconciliation engine (Exact match + Levenshtein fuzzy match)<br>• Implements the dated statutory rulebook (GST Sec 16(2)(aa), TDS 194C/J/Q)<br>• Implements on-device Local Firm Memory, SHA-256 hash chaining, and Tally XML export |
+| Member | Assigned Area | Key Responsibilities | Primary Languages |
+| :--- | :--- | :--- | :--- |
+| **Chirag** | **Frontend 3-Pane Cockpit & Model Fine-Tuning Lead** | • Builds the 3-Pane desktop UI in React/Tailwind inside Tauri<br>• Fine-tunes local VLM/LLM in Python (LoRA/QLoRA) & exports weights<br>• Connects React UI to Tauri IPC commands (`invoke()`) | **TypeScript (React) & Python (PyTorch)** |
+| **Rajveer** | **Rust Systems, Security & Core Engine Lead** | • Rust storage layer (AES-GCM-256 workspace encryption & client isolation)<br>• Tamper-evident SHA-256 hash-chained audit log<br>• Multi-threaded reconciliation engine (`rayon`, `strsim`) & dated tax rulebook | **Rust (Tauri Core & Crates)** |
+| **Vihaan** | **Data Ingestion, Parsers & Model Evaluation Lead** | • Multi-format parsers (Rust `calamine` for fast Excel, GSTR-2B JSON, bank CSV)<br>• Synthetic Indian invoice generation pipeline in Python (`Faker('en_IN')`, Jinja2)<br>• 200-document Gold Test Set & automated model evaluation harness | **Python & Rust** |
 
 ---
 
-## 📐 Master Type Contract
+## 📁 Repository Layout
 
-All modules interact through the strictly typed contract defined in [`src/types/index.ts`](./src/types/index.ts).
-
-```typescript
-// Core Data Interfaces
-BookInvoice      // Normalized client purchase register entry
-GSTR2BRecord     // Normalized GST Portal return entry
-ReconciledItem   // Result pair with MatchStatus, AuditRationale, and RuleCitation
-FirmPreference   // Local on-device learned classification preference
-AuditBlock       // SHA-256 cryptographic audit block
+```
+recon-os/
+├── src/                        # [CHIRAG] React + Tailwind UI (Tauri Webview)
+│   ├── components/             # 3-Pane layout, Today View, Exception Queue, Loupe
+│   └── types/                  # Master TypeScript contracts
+├── src-tauri/                  # [RAJVEER & VIHAAN] Native Rust Engine
+│   ├── src/
+│   │   ├── engine/             # Matching math, Levenshtein, date window checks
+│   │   ├── rules/              # Dated statutory tax rulebook (GST Sec 16(2)(aa), TDS)
+│   │   ├── storage/            # AES-GCM-256 encrypted storage & SHA-256 audit chain
+│   │   ├── parsers/            # Fast Calamine Excel & GSTR-2B JSON reader
+│   │   └── main.rs             # Tauri command handlers (IPC bridge)
+│   └── Cargo.toml              # Rust crate dependencies
+├── ml/                         # [CHIRAG & VIHAAN] Machine Learning Pipeline
+│   ├── training/               # Python fine-tuning scripts (QLoRA, Unsloth)
+│   ├── synthetic/              # Python synthetic invoice generator (Faker en_IN)
+│   └── eval/                   # Model benchmark harness (FER / CER scoring)
+└── docs/                       # Architecture, UI Specs & Team Contracts
 ```
 
 ---
@@ -63,9 +83,9 @@ AuditBlock       // SHA-256 cryptographic audit block
 git clone https://github.com/chiraggoenka17512-coder/ca-audit-cockpit.git
 cd ca-audit-cockpit
 
-# Install dependencies
+# Install frontend dependencies
 npm install
 
-# Start development server
-npm run dev
+# Run Tauri in development mode (launches native desktop shell)
+npm run tauri dev
 ```
