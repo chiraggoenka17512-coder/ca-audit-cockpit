@@ -310,7 +310,8 @@ export function reconcileDatasets(
       const portalPaise = parseToPaise(p.invoiceValue);
 
       // STRICT EQUALITY: GSTIN, Invoice #, and Amount in paise MUST be exact
-      if (portalGstin === bookGstin && portalInv === bookInv && portalPaise === bookPaise) {
+      const daysDiff = dateDiffDays(book.invoiceDate, p.invoiceDate);
+      if (portalGstin === bookGstin && portalInv === bookInv && portalPaise === bookPaise && daysDiff <= 30) {
         const partySim = calculateStringSimilarity(book.vendorName, p.supplierTradeName);
         if (partySim > 0.82 && (!bestPartyMatch || partySim > bestPartyMatch.sim)) {
           bestPartyMatch = { portal: p, sim: partySim };
