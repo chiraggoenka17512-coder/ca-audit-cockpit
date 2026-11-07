@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  AVAILABLE_CLIENTS, 
   ClientProfile, 
   loadClientData, 
   saveClientData, 
-  resetClientData 
+  resetClientData,
+  getStoredClients,
+  initializeClientWorkspace
 } from './data/clientDatabases';
 import { ReviewItem } from './data/reviewItems';
 import { HomeView } from './components/views/HomeView';
@@ -14,7 +15,10 @@ import { ComposerInput } from './components/ComposerInput';
 import { ReconciliationView } from './components/views/ReconciliationView';
 import { DeadlinesView } from './components/views/DeadlinesView';
 import { AuditTrailView } from './components/views/AuditTrailView';
+import { TitleBar } from './components/TitleBar';
 import { ClientSwitcherModal } from './components/ClientSwitcherModal';
+import { NewClientModal } from './components/NewClientModal';
+import { SaveOrDiscardModal } from './components/SaveOrDiscardModal';
 import { EditModal } from './components/EditModal';
 import { KeyboardHelpModal } from './components/KeyboardHelpModal';
 import { AuditEntry, createAuditEntry } from './engine/auditLedger';
@@ -22,24 +26,45 @@ import { AuditEntry, createAuditEntry } from './engine/auditLedger';
 type NavSection = 'home' | 'exceptions' | 'reconciliation' | 'deadlines' | 'audit';
 
 export const App: React.FC = () => {
+  // Stored Client Workspaces
+  const [clients, setClients] = useState<ClientProfile[]>(() => getStoredClients());
   // Active Client Workspace State
-  const [activeClient, setActiveClient] = useState<ClientProfile>(AVAILABLE_CLIENTS[0]);
-  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [activeClient, setActiveClient] = useState<ClientProfile>(() => {
+    const list = getStoredClients();
+    return list[0] || {
+      id: "cl-acme",
+      name: "ACME Manufacturing Pvt Ltd",
+      gstin: "27AABCA1234F1Z5",
+      pan: "AABCA1234F",
+      state: "Maharashtra (27)",
+      turnoverPaise: 4825000000,
+      matchedCount: 482,
+      matchedTurnoverFormatted: "₹4,82,50,000",
+      itcClaimFormatted: "₹73,20,500",
+      filingFrequency: "Monthly"
+    };
+  });
 
-  // Active Navigation Tab
+  // Navigation & Modals State
   const [activeNav, setActiveNav] = useState<NavSection>('home');
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+
+  // Dirty State & Switching Safety
+  const [pendingSwitchClient, setPendingSwitchClient] = useState<ClientProfile | null>(null);
+  const [isSaveOrDiscardOpen, setIsSaveOrDiscardOpen] = useState(false);
 
   // Isolated Client Database State
-  const [items, setItems] = useState<ReviewItem[]>(() => loadClientData(AVAILABLE_CLIENTS[0].id).items);
-  const [auditLedger, setAuditLedger] = useState<AuditEntry[]>(() => loadClientData(AVAILABLE_CLIENTS[0].id).auditLedger);
+  const [items, setItems] = useState<ReviewItem[]>(() => loadClientData(activeClient.id).items);
+  const [auditLedger, setAuditLedger] = useState<AuditEntry[]>(() => loadClientData(activeClient.id).auditLedger);
 
   // Third Pane (Inspection Loupe) & Selection State
   const [activeDetailItem, setActiveDetailItem] = useState<ReviewItem | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [editingItem, setEditingItem] = useState<ReviewItem | null>(null);
 
-  // Modal & Notification State
-  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  // Notification Toast State
   const [notification, setNotification] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -52,17 +77,6 @@ export const App: React.FC = () => {
     }, 3200);
   }, []);
 
-  // When active client changes, switch to that client's isolated database
-  const handleSelectClient = useCallback((newClient: ClientProfile) => {
-    setActiveClient(newClient);
-    const clientData = loadClientData(newClient.id);
-    setItems(clientData.items);
-    setAuditLedger(clientData.auditLedger);
-    setActiveDetailItem(null);
-    setFocusedIndex(0);
-    showNotification(`Switched database to ${newClient.name} (AES-GCM-256 isolated)`);
-  }, [showNotification]);
-
   // Persist client data whenever items or auditLedger change
   const persistChanges = useCallback((updatedItems: ReviewItem[], updatedLedger: AuditEntry[]) => {
     saveClientData(activeClient.id, {
@@ -70,6 +84,97 @@ export const App: React.FC = () => {
       auditLedger: updatedLedger
     });
   }, [activeClient.id]);
+
+  // Core workspace switch routine with strict state isolation
+  const switchActiveClient = useCallback((newClient: ClientProfile) => {
+    setActiveClient(newClient);
+    const clientData = loadClientData(newClient.id);
+    setItems(clientData.items);
+    setAuditLedger(clientData.auditLedger);
+    // Strict isolation: clear third-pane loupe, editing state, and selection index
+    setActiveDetailItem(null);
+    setFocusedIndex(0);
+    setEditingItem(null);
+    showNotification(`Switched database to ${newClient.name} (AES-GCM-256 isolated)`);
+  }, [showNotification]);
+
+  // Client switch with dirty edit guard (Flow 2)
+  const handleSelectClient = useCallback((targetClient: ClientProfile) => {
+    if (targetClient.id === activeClient.id) return;
+
+    // Dirty Check: If an edit is in-flight, ask to save or discard
+    if (editingItem) {
+      setPendingSwitchClient(targetClient);
+      setIsSaveOrDiscardOpen(true);
+      return;
+    }
+
+    switchActiveClient(targetClient);
+  }, [activeClient.id, editingItem, switchActiveClient]);
+
+  // Save in-flight edit and then proceed with switching
+  const handleSaveAndSwitch = useCallback(async () => {
+    if (editingItem) {
+      const lastEntry = auditLedger[auditLedger.length - 1];
+      const prevHash = lastEntry ? lastEntry.entryHash : '0'.repeat(64);
+
+      const newAuditEntry = await createAuditEntry(
+        auditLedger.length,
+        "Chirag (Audit Partner)",
+        "LEDGER_RECLASSIFICATION",
+        editingItem.id,
+        editingItem.title,
+        `Ledger saved before switching client workspace: '${editingItem.assignedLedger || 'General Administrative Expenses'}'`,
+        prevHash
+      );
+
+      const updatedLedger = [...auditLedger, newAuditEntry];
+      setAuditLedger(updatedLedger);
+      persistChanges(items, updatedLedger);
+    }
+
+    setIsSaveOrDiscardOpen(false);
+    setEditingItem(null);
+
+    if (pendingSwitchClient) {
+      switchActiveClient(pendingSwitchClient);
+      setPendingSwitchClient(null);
+    }
+  }, [editingItem, auditLedger, items, persistChanges, pendingSwitchClient, switchActiveClient]);
+
+  // Discard in-flight edit and switch
+  const handleDiscardAndSwitch = useCallback(() => {
+    setEditingItem(null);
+    setIsSaveOrDiscardOpen(false);
+
+    if (pendingSwitchClient) {
+      const target = pendingSwitchClient;
+      setPendingSwitchClient(null);
+      switchActiveClient(target);
+      showNotification(`Switched database to ${target.name} (Discarded unsaved edit)`);
+    }
+  }, [pendingSwitchClient, switchActiveClient, showNotification]);
+
+  // Flow 1: New client workspace creation & encrypted storage init
+  const handleCreateClient = useCallback(async (newClient: ClientProfile, isDraft: boolean) => {
+    const bundle = await initializeClientWorkspace(newClient);
+    const updatedClients = getStoredClients();
+    setClients(updatedClients);
+
+    // Switch to the newly provisioned workspace
+    setActiveClient(newClient);
+    setItems(bundle.items);
+    setAuditLedger(bundle.auditLedger);
+    setActiveDetailItem(null);
+    setFocusedIndex(0);
+    setEditingItem(null);
+
+    showNotification(
+      isDraft
+        ? `Saved draft workspace for ${newClient.name} (AES-GCM-256 initialized)`
+        : `Created encrypted workspace for ${newClient.name} (Block #0 logged)`
+    );
+  }, [showNotification]);
 
   // Approve single item -> append SHA-256 block to client ledger & persist
   const handleApproveItem = useCallback(async (item: ReviewItem) => {
@@ -181,7 +286,7 @@ export const App: React.FC = () => {
     showNotification(`Reset ${activeClient.name} database to initial state`);
   }, [activeClient.id, activeClient.name, showNotification]);
 
-  // Keyboard navigation & shortcuts
+  // Global Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -193,7 +298,20 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Modals handle their own Esc
+      // Fast modal close handlers on Escape
+      if (isSaveOrDiscardOpen) {
+        if (e.key === 'Escape') {
+          setIsSaveOrDiscardOpen(false);
+          setPendingSwitchClient(null);
+        }
+        return;
+      }
+
+      if (isNewClientModalOpen) {
+        if (e.key === 'Escape') setIsNewClientModalOpen(false);
+        return;
+      }
+
       if (isClientModalOpen || editingItem) {
         if (e.key === 'Escape') {
           setIsClientModalOpen(false);
@@ -207,14 +325,23 @@ export const App: React.FC = () => {
         return;
       }
 
+      const key = e.key.toLowerCase();
+
+      // Quick Client Switcher: Ctrl+O or Cmd+O
+      if ((e.ctrlKey || e.metaKey) && key === 'o') {
+        e.preventDefault();
+        setIsClientModalOpen(true);
+        return;
+      }
+
       // If Third Pane is open, handle its shortcuts
       if (activeDetailItem) {
-        if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey) {
+        if (key === 'a' && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           handleApproveItem(activeDetailItem);
           return;
         }
-        if (e.key.toLowerCase() === 'e' && !e.ctrlKey && !e.metaKey) {
+        if (key === 'e' && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           setEditingItem(activeDetailItem);
           return;
@@ -226,7 +353,7 @@ export const App: React.FC = () => {
         }
       }
 
-      // Help Modal Toggle
+      // Help Modal Toggle: ?
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setIsHelpModalOpen(true);
@@ -234,8 +361,6 @@ export const App: React.FC = () => {
       }
 
       // Navigation in review list (Exceptions tab or Home)
-      const key = e.key.toLowerCase();
-
       if ((key === 'j' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setFocusedIndex(prev => {
@@ -302,6 +427,8 @@ export const App: React.FC = () => {
     focusedIndex,
     activeDetailItem,
     isClientModalOpen,
+    isNewClientModalOpen,
+    isSaveOrDiscardOpen,
     editingItem,
     isHelpModalOpen,
     handleApproveItem,
@@ -309,135 +436,153 @@ export const App: React.FC = () => {
   ]);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0f1115] text-[#e8eaf0] font-sans antialiased">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0f1115] text-[#e8eaf0] font-sans antialiased">
       {/* Toast Notification */}
       {notification && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed top-5 right-6 z-50 px-4 py-2.5 rounded-md bg-[#171a21] border border-[#262a33] text-[#e8eaf0] text-xs font-medium shadow-lg animate-in fade-in slide-in-from-top-2"
+          className="fixed top-14 right-6 z-50 px-4 py-2.5 rounded-md bg-[#171a21] border border-[#262a33] text-[#e8eaf0] text-xs font-medium shadow-lg animate-in fade-in slide-in-from-top-2"
         >
           {notification}
         </div>
       )}
 
-      {/* Pane 1: Sidebar (220px, exactly 6 places) */}
-      <aside className="cockpit-aside">
-        <div className="cockpit-brand">
-          AuditCockpit
-          <span>Audit &amp; reconciliation</span>
-        </div>
+      {/* Persistent Title Bar at the Top (Always visible, showing active Client, GSTIN, PAN, and 0 KB OUTBOUND) */}
+      <TitleBar
+        activeClient={activeClient}
+        onOpenClientSwitcher={() => setIsClientModalOpen(true)}
+        onOpenNewClientModal={() => setIsNewClientModalOpen(true)}
+        onResetClientData={handleResetClientData}
+      />
 
-        <button
-          type="button"
-          onClick={() => setActiveNav('home')}
-          className={`cockpit-nav-item ${activeNav === 'home' ? 'active' : ''}`}
-        >
-          <span>Home</span>
-        </button>
+      {/* Cockpit Workspace (3 Panes) */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Pane 1: Sidebar (220px, exactly 6 places) */}
+        <aside className="cockpit-aside">
+          <div className="cockpit-brand">
+            AuditCockpit
+            <span>Audit &amp; reconciliation</span>
+          </div>
 
-        <button
-          type="button"
-          onClick={() => setActiveNav('exceptions')}
-          className={`cockpit-nav-item ${activeNav === 'exceptions' ? 'active' : ''}`}
-        >
-          <span>Exceptions</span>
-          {items.length > 0 && (
-            <span className="cockpit-count">{items.length}</span>
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveNav('home')}
+            className={`cockpit-nav-item ${activeNav === 'home' ? 'active' : ''}`}
+          >
+            <span>Home</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveNav('reconciliation')}
-          className={`cockpit-nav-item ${activeNav === 'reconciliation' ? 'active' : ''}`}
-        >
-          <span>Reconciliation</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveNav('exceptions')}
+            className={`cockpit-nav-item ${activeNav === 'exceptions' ? 'active' : ''}`}
+          >
+            <span>Exceptions</span>
+            {items.length > 0 && (
+              <span className="cockpit-count">{items.length}</span>
+            )}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveNav('deadlines')}
-          className={`cockpit-nav-item ${activeNav === 'deadlines' ? 'active' : ''}`}
-        >
-          <span>Deadlines</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveNav('reconciliation')}
+            className={`cockpit-nav-item ${activeNav === 'reconciliation' ? 'active' : ''}`}
+          >
+            <span>Reconciliation</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveNav('audit')}
-          className={`cockpit-nav-item ${activeNav === 'audit' ? 'active' : ''}`}
-        >
-          <span>Audit trail</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveNav('deadlines')}
+            className={`cockpit-nav-item ${activeNav === 'deadlines' ? 'active' : ''}`}
+          >
+            <span>Deadlines</span>
+          </button>
 
-        {/* 6th Place: Active Client Workspace Switcher */}
-        <div
-          className="cockpit-client"
-          onClick={() => setIsClientModalOpen(true)}
-          role="button"
-          tabIndex={0}
-          title="Click to switch client workspace"
-        >
-          <strong className="truncate">{activeClient.name}</strong>
-          <span className="text-xs text-[#8a909c] block mt-0.5">Click to switch client</span>
-        </div>
-      </aside>
+          <button
+            type="button"
+            onClick={() => setActiveNav('audit')}
+            className={`cockpit-nav-item ${activeNav === 'audit' ? 'active' : ''}`}
+          >
+            <span>Audit trail</span>
+          </button>
 
-      {/* Pane 2: Centre Main Area */}
-      <main className="cockpit-main">
-        <div className="cockpit-content">
-          {activeNav === 'home' && (
-            <HomeView
-              client={activeClient}
-              items={items}
-              auditLedger={auditLedger}
-              onOpenItemInThirdPane={(item) => setActiveDetailItem(item)}
-              onNavigate={(view) => setActiveNav(view)}
-            />
-          )}
+          {/* 6th Place: Active Client Workspace Switcher in Sidebar */}
+          <div
+            className="cockpit-client"
+            onClick={() => setIsClientModalOpen(true)}
+            role="button"
+            tabIndex={0}
+            title="Click to switch client workspace (Ctrl+O)"
+          >
+            <div className="flex items-center justify-between">
+              <strong className="truncate">{activeClient.name}</strong>
+              {activeClient.isDraft && (
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-medium bg-[#f5b754]/10 border border-[#f5b754]/30 text-[#f5b754] shrink-0">
+                  Draft
+                </span>
+              )}
+            </div>
+            <span className="text-xs text-[#8a909c] block mt-0.5">Click to switch (Ctrl+O)</span>
+          </div>
+        </aside>
 
-          {activeNav === 'exceptions' && (
-            <ReviewList
-              items={items}
-              focusedIndex={focusedIndex}
-              activeItemId={activeDetailItem?.id}
-              onOpenDetail={(item) => setActiveDetailItem(item)}
-              onResetItems={handleResetClientData}
-            />
-          )}
+        {/* Pane 2: Centre Main Area */}
+        <main className="cockpit-main">
+          <div className="cockpit-content">
+            {activeNav === 'home' && (
+              <HomeView
+                client={activeClient}
+                items={items}
+                auditLedger={auditLedger}
+                onOpenItemInThirdPane={(item) => setActiveDetailItem(item)}
+                onNavigate={(view) => setActiveNav(view)}
+              />
+            )}
 
-          {activeNav === 'reconciliation' && (
-            <ReconciliationView client={activeClient} />
-          )}
+            {activeNav === 'exceptions' && (
+              <ReviewList
+                items={items}
+                focusedIndex={focusedIndex}
+                activeItemId={activeDetailItem?.id}
+                onOpenDetail={(item) => setActiveDetailItem(item)}
+                onResetItems={handleResetClientData}
+              />
+            )}
 
-          {activeNav === 'deadlines' && (
-            <DeadlinesView />
-          )}
+            {activeNav === 'reconciliation' && (
+              <ReconciliationView client={activeClient} />
+            )}
 
-          {activeNav === 'audit' && (
-            <AuditTrailView client={activeClient} entries={auditLedger} />
-          )}
-        </div>
+            {activeNav === 'deadlines' && (
+              <DeadlinesView />
+            )}
 
-        {/* Chat-style Input at the Bottom */}
-        <ComposerInput
-          items={items}
-          onOpenDetail={(item) => setActiveDetailItem(item)}
-          onApproveItem={handleApproveItem}
-          onNavigateToView={(view) => setActiveNav(view)}
-        />
-      </main>
+            {activeNav === 'audit' && (
+              <AuditTrailView client={activeClient} entries={auditLedger} />
+            )}
+          </div>
 
-      {/* Pane 3: Third Pane Inspection Loupe (Opens when an item is selected) */}
-      {activeDetailItem && (
-        <DetailPanel
-          item={activeDetailItem}
-          onClose={() => setActiveDetailItem(null)}
-          onApprove={handleApproveItem}
-          onEdit={(item) => setEditingItem(item)}
-        />
-      )}
+          {/* Chat-style Input at the Bottom */}
+          <ComposerInput
+            items={items}
+            onOpenDetail={(item) => setActiveDetailItem(item)}
+            onApproveItem={handleApproveItem}
+            onNavigateToView={(view) => setActiveNav(view)}
+          />
+        </main>
+
+        {/* Pane 3: Third Pane Inspection Loupe (Opens when an item is selected) */}
+        {activeDetailItem && (
+          <DetailPanel
+            item={activeDetailItem}
+            onClose={() => setActiveDetailItem(null)}
+            onApprove={handleApproveItem}
+            onEdit={(item) => setEditingItem(item)}
+          />
+        )}
+      </div>
 
       {/* Edit Ledger Modal */}
       <EditModal
@@ -446,12 +591,34 @@ export const App: React.FC = () => {
         onSave={handleSaveEdit}
       />
 
-      {/* Client Workspace Switcher Modal */}
+      {/* Client Workspace Switcher Modal (Can launch NewClientModal) */}
       <ClientSwitcherModal
         isOpen={isClientModalOpen}
         activeClient={activeClient}
+        clients={clients}
         onSelectClient={handleSelectClient}
+        onOpenNewClient={() => setIsNewClientModalOpen(true)}
         onClose={() => setIsClientModalOpen(false)}
+      />
+
+      {/* Flow 1: New Client Workspace Modal */}
+      <NewClientModal
+        isOpen={isNewClientModalOpen}
+        onClose={() => setIsNewClientModalOpen(false)}
+        onCreateClient={handleCreateClient}
+      />
+
+      {/* Flow 2: Dirty Guard Modal (Save or Discard before client switch) */}
+      <SaveOrDiscardModal
+        isOpen={isSaveOrDiscardOpen}
+        currentItem={editingItem}
+        targetClient={pendingSwitchClient}
+        onSaveAndSwitch={handleSaveAndSwitch}
+        onDiscardAndSwitch={handleDiscardAndSwitch}
+        onCancel={() => {
+          setIsSaveOrDiscardOpen(false);
+          setPendingSwitchClient(null);
+        }}
       />
 
       {/* Keyboard Shortcuts Matrix Modal (?) */}

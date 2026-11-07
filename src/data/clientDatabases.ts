@@ -1,5 +1,5 @@
 import { ReviewItem, INITIAL_REVIEW_ITEMS } from './reviewItems';
-import { AuditEntry, INITIAL_AUDIT_LOG } from '../engine/auditLedger';
+import { AuditEntry, INITIAL_AUDIT_LOG, createAuditEntry } from '../engine/auditLedger';
 
 export interface ClientProfile {
   id: string;
@@ -363,7 +363,8 @@ export function loadClientData(clientId: string): ClientDataBundle {
   } else if (clientId === "cl-zenith") {
     return { items: ZENITH_REVIEW_ITEMS, auditLedger: ZENITH_AUDIT_LOG };
   }
-  return { items: INITIAL_REVIEW_ITEMS, auditLedger: INITIAL_AUDIT_LOG };
+  if (clientId === 'cl-acme') return { items: INITIAL_REVIEW_ITEMS, auditLedger: INITIAL_AUDIT_LOG };
+  return { items: [], auditLedger: [] };
 }
 
 export function saveClientData(clientId: string, data: ClientDataBundle): void {
@@ -377,4 +378,61 @@ export function saveClientData(clientId: string, data: ClientDataBundle): void {
 export function resetClientData(clientId: string): ClientDataBundle {
   localStorage.removeItem(`reconos_client_${clientId}`);
   return loadClientData(clientId);
+}
+
+
+const CLIENTS_STORAGE_KEY = 'reconos_clients_list';
+
+export function getStoredClients(): ClientProfile[] {
+  try {
+    const raw = localStorage.getItem(CLIENTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load clients list from storage:', err);
+  }
+  return AVAILABLE_CLIENTS;
+}
+
+export function saveStoredClients(clients: ClientProfile[]): void {
+  try {
+    localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
+  } catch (err) {
+    console.error('Failed to save clients list to storage:', err);
+  }
+}
+
+export function addStoredClient(newClient: ClientProfile): ClientProfile[] {
+  const current = getStoredClients();
+  const exists = current.some(c => c.id === newClient.id);
+  const updated = exists ? current.map(c => c.id === newClient.id ? newClient : c) : [...current, newClient];
+  saveStoredClients(updated);
+  return updated;
+}
+
+export async function initializeClientWorkspace(client: ClientProfile): Promise<ClientDataBundle> {
+  const genesisEntry = await createAuditEntry(
+    0,
+    'Chirag (Audit Partner)',
+    'GENESIS_INITIALIZE',
+    `WORKSPACE_${client.id.toUpperCase()}`,
+    `${client.name} Workspace`,
+    client.isDraft
+      ? 'Air-gapped workspace initialized as draft. AES-GCM-256 local database created. GSTIN pending completion.'
+      : `Air-gapped workspace initialized. AES-GCM-256 local database created with verified GSTIN ${client.gstin}.`,
+    '0'.repeat(64)
+  );
+
+  const bundle: ClientDataBundle = {
+    items: [],
+    auditLedger: [genesisEntry]
+  };
+
+  saveClientData(client.id, bundle);
+  addStoredClient(client);
+  return bundle;
 }
