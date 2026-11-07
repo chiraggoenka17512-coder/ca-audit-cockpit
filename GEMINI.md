@@ -190,3 +190,29 @@ When you stop, state what is missing, what you have already done, and the exact 
 - Audit sign-off or opinion generation
 - Anomaly flags (stretch goal, only after Steps 1 to 10 pass)
 - Any feature that needs a server
+
+
+---
+
+## 9. Zero AI Design Slop Policy (Strict Mandatory Rule)
+Under no circumstances may any of the 20 AI Design Slop indicators appear in ReconOS:
+1. Tags and pills: No gratuitous rounded-full chip bubbles, pill badges, or tag clusters.
+2. Excessive italics: No decorative italics for artificial emphasis.
+3. Instrument Serif / Pretentious Serifs: Clean sans-serif only (Inter, system-ui).
+4. Negative kerning: No negative tracking (`tracking-tight`, `tracking-[-0.03em]`).
+5. Over-the-top detailed UI: No superfluous decorations, micro-icons, or visual noise.
+6. Overusing dividers: Group with natural whitespace, avoid cutting everything with hairline dividers.
+7. Multiple color shades and opacities: No chaotic soup of opacity shifts (`/15`, `/30`, `/80`).
+8. Containers with borders (Nested boxes): No cards inside cards inside cards with borders.
+9. Overly detailed diagrams: No fake progress charts or complex decorative meters.
+10. Overly verbose text: Direct, concise copy without AI breathlessness.
+11. Code breadcrumbs: No pseudo-code paths (`// INSPECTION LOUPE //`) as headers.
+12. Section numbering: No arbitrary `01.`, `02.`, `#1` prefixes on titles.
+13. Eyebrows: No tiny uppercase tracked-out eyebrow labels above headings.
+14. Dithering: Strictly banned.
+15. ASCII images / art: Strictly banned.
+16. Squirkles: Use standard consistent `rounded-lg` or `rounded-md`.
+17. Excessive monospace: `font-mono` is strictly for code & hashes, NOT dates, numbers, or titles. Use `tabular-nums`.
+18. All-caps subtitles: Use natural sentence case or standard title case.
+19. Gradient backgrounds: Flat, solid, high-contrast surfaces only. No glowing neon gradients.
+20. Periods in titles: No trailing periods at the end of headings.

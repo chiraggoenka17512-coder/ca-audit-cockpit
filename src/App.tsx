@@ -1,94 +1,46 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Header } from './components/Header';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
-  Building2, 
-  Search, 
-  Clock, 
-  CheckCircle2, 
-  AlertTriangle, 
-  BookOpen, 
-  ShieldCheck, 
-  Settings,
-  HelpCircle,
-  X
-} from 'lucide-react';
-import { TodayDashboard } from './components/today/TodayDashboard';
-import { ExceptionQueue, ExceptionItem } from './components/queue/ExceptionQueue';
-import { DetailInspectionLoupe } from './components/loupe/DetailInspectionLoupe';
-import { OmniSearchModal } from './components/search/OmniSearchModal';
-import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+  AVAILABLE_CLIENTS, 
+  ClientProfile, 
+  loadClientData, 
+  saveClientData, 
+  resetClientData 
+} from './data/clientDatabases';
+import { ReviewItem } from './data/reviewItems';
+import { HomeView } from './components/views/HomeView';
+import { ReviewList } from './components/ReviewList';
+import { DetailPanel } from './components/DetailPanel';
+import { ComposerInput } from './components/ComposerInput';
+import { ReconciliationView } from './components/views/ReconciliationView';
+import { DeadlinesView } from './components/views/DeadlinesView';
+import { AuditTrailView } from './components/views/AuditTrailView';
+import { ClientSwitcherModal } from './components/ClientSwitcherModal';
+import { EditModal } from './components/EditModal';
+import { KeyboardHelpModal } from './components/KeyboardHelpModal';
+import { AuditEntry, createAuditEntry } from './engine/auditLedger';
 
-const INITIAL_EXCEPTIONS: ExceptionItem[] = [
-  {
-    id: "exc-001",
-    vendorName: "Blue Dart Express Limited",
-    vendorGstin: "27AAACB0446L1ZS",
-    invoiceNumber: "INV/2024/891",
-    gstrInvoiceNumber: "INV/2024/891",
-    invoiceDate: "12/09/2024",
-    gstrDate: "17/09/2024",
-    booksAmount: 5310000,
-    gstrAmount: 5310000,
-    category: "TIMING_DIFFERENCE",
-    confidence: 0.98,
-    statutoryNote: "Timing drift (5 days); filed within permissible 30-day window",
-    suggestedAction: "1-Click Approve (Sec 16(2)(aa) compliant)"
-  },
-  {
-    id: "exc-002",
-    vendorName: "Tata Tele Business Services Ltd",
-    vendorGstin: "27AAACT2727Q1ZW",
-    invoiceNumber: "TI/24-25/00482",
-    gstrInvoiceNumber: "TI-24-25-00482",
-    invoiceDate: "15/09/2024",
-    gstrDate: "15/09/2024",
-    booksAmount: 9912000,
-    gstrAmount: 9912000,
-    category: "INVOICE_TYPO",
-    confidence: 0.94,
-    statutoryNote: "Exact amount & date match; Levenshtein distance 2 on special chars (/ vs -)",
-    suggestedAction: "Confirm Typo Match"
-  },
-  {
-    id: "exc-003",
-    vendorName: "Kolkata Precision Tools Pvt Ltd",
-    vendorGstin: "19AABCK9901M1Z4",
-    invoiceNumber: "KL/GST/2024/99",
-    gstrInvoiceNumber: "KL/GST/2024/99",
-    invoiceDate: "18/09/2024",
-    gstrDate: "18/09/2024",
-    booksAmount: 13440000,
-    gstrAmount: 14160000,
-    category: "TAX_RATE_MISMATCH",
-    confidence: 0.88,
-    statutoryNote: "Client booked at 12% (₹ 14,400 tax); Vendor filed at 18% (₹ 21,600 tax)",
-    suggestedAction: "Flag for ledger adjustment"
-  },
-  {
-    id: "exc-004",
-    vendorName: "Rajasthan Heavy Haulage Logistics",
-    vendorGstin: "08AAECR9012F1Z8",
-    invoiceNumber: "RAJ/INV/772",
-    invoiceDate: "22/09/2024",
-    booksAmount: 24000000,
-    gstrAmount: 0,
-    category: "MISSING_IN_2B",
-    confidence: 0.99,
-    statutoryNote: "Missing in GSTR-2B; ITC at statutory risk under Section 16(2)(aa)",
-    suggestedAction: "Send inquiry notice to vendor"
-  }
-];
+type NavSection = 'home' | 'exceptions' | 'reconciliation' | 'deadlines' | 'audit';
 
 export const App: React.FC = () => {
-  const [activeClient] = useState('ACME Manufacturing Pvt Ltd (27AABCA1234F1Z5)');
-  const [currentView, setCurrentView] = useState<'today' | 'queue' | 'reconciliation' | 'audit'>('today');
-  const [exceptions, setExceptions] = useState<ExceptionItem[]>(INITIAL_EXCEPTIONS);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
-  const [notification, setNotification] = useState<string | null>(null);
+  // Active Client Workspace State
+  const [activeClient, setActiveClient] = useState<ClientProfile>(AVAILABLE_CLIENTS[0]);
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
 
-  // Manage toast timers in a ref to avoid race conditions on rapid actions
+  // Active Navigation Tab
+  const [activeNav, setActiveNav] = useState<NavSection>('home');
+
+  // Isolated Client Database State
+  const [items, setItems] = useState<ReviewItem[]>(() => loadClientData(AVAILABLE_CLIENTS[0].id).items);
+  const [auditLedger, setAuditLedger] = useState<AuditEntry[]>(() => loadClientData(AVAILABLE_CLIENTS[0].id).auditLedger);
+
+  // Third Pane (Inspection Loupe) & Selection State
+  const [activeDetailItem, setActiveDetailItem] = useState<ReviewItem | null>(null);
+  const [focusedIndex, setFocusedIndex] = useState(0);
+  const [editingItem, setEditingItem] = useState<ReviewItem | null>(null);
+
+  // Modal & Notification State
+  const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [notification, setNotification] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showNotification = useCallback((msg: string) => {
@@ -97,327 +49,416 @@ export const App: React.FC = () => {
     toastTimerRef.current = setTimeout(() => {
       setNotification(null);
       toastTimerRef.current = null;
-    }, 3000);
+    }, 3200);
   }, []);
 
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    };
-  }, []);
-
-  // Hotkeys Cheat Sheet Escape Listener
-  useEffect(() => {
-    if (!isHelpOpen) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsHelpOpen(false);
-    };
-    window.addEventListener('keydown', handleEsc);
-    return () => window.removeEventListener('keydown', handleEsc);
-  }, [isHelpOpen]);
-
-  const handleApprove = useCallback((id: string) => {
-    setExceptions((prev) => {
-      const item = prev.find(e => e.id === id);
-      if (item) {
-        showNotification(`Approved ${item.invoiceNumber} (${item.vendorName}) - Logged to SHA-256 chain`);
-      }
-      return prev.filter(e => e.id !== id);
-    });
-    setSelectedIndex((prev) => Math.max(0, Math.min(prev, exceptions.length - 2)));
-  }, [exceptions.length, showNotification]);
-
-  const handleBatchApproveTiming = useCallback(() => {
-    const timingCount = exceptions.filter(e => e.category === 'TIMING_DIFFERENCE').length;
-    if (timingCount === 0) {
-      showNotification('No timing differences in current queue.');
-      return;
-    }
-    setExceptions((prev) => prev.filter(e => e.category !== 'TIMING_DIFFERENCE'));
-    setSelectedIndex(0);
-    showNotification(`Batch approved ${timingCount} timing differences (Sec 16(2)(aa) compliant)`);
-  }, [exceptions, showNotification]);
-
-  const handleEdit = useCallback((id: string) => {
-    showNotification(`Opening ledger editor for item ${id}`);
+  // When active client changes, switch to that client's isolated database
+  const handleSelectClient = useCallback((newClient: ClientProfile) => {
+    setActiveClient(newClient);
+    const clientData = loadClientData(newClient.id);
+    setItems(clientData.items);
+    setAuditLedger(clientData.auditLedger);
+    setActiveDetailItem(null);
+    setFocusedIndex(0);
+    showNotification(`Switched database to ${newClient.name} (AES-GCM-256 isolated)`);
   }, [showNotification]);
 
-  // Keyboard Shortcuts: strictly disabled when modals are open
-  useKeyboardShortcuts(
-    {
-      onNext: () => setSelectedIndex((prev) => Math.min(prev + 1, exceptions.length - 1)),
-      onPrev: () => setSelectedIndex((prev) => Math.max(prev - 1, 0)),
-      onApprove: () => {
-        if (exceptions.length > 0 && exceptions[selectedIndex]) {
-          handleApprove(exceptions[selectedIndex].id);
+  // Persist client data whenever items or auditLedger change
+  const persistChanges = useCallback((updatedItems: ReviewItem[], updatedLedger: AuditEntry[]) => {
+    saveClientData(activeClient.id, {
+      items: updatedItems,
+      auditLedger: updatedLedger
+    });
+  }, [activeClient.id]);
+
+  // Approve single item -> append SHA-256 block to client ledger & persist
+  const handleApproveItem = useCallback(async (item: ReviewItem) => {
+    const lastEntry = auditLedger[auditLedger.length - 1];
+    const prevHash = lastEntry ? lastEntry.entryHash : '0'.repeat(64);
+
+    const newAuditEntry = await createAuditEntry(
+      auditLedger.length,
+      "Chirag (Audit Partner)",
+      "APPROVED_MATCH",
+      item.id,
+      `${item.title} (${item.booksInvoice})`,
+      `Approved match between books (${item.books}) and portal (${item.gstr}). Reason: ${item.why}`,
+      prevHash
+    );
+
+    const updatedLedger = [...auditLedger, newAuditEntry];
+    const updatedItems = items.filter(i => i.id !== item.id);
+
+    setAuditLedger(updatedLedger);
+    setItems(updatedItems);
+    persistChanges(updatedItems, updatedLedger);
+
+    // If active in third pane, advance to next item or close
+    if (activeDetailItem?.id === item.id) {
+      const remainingIndex = items.findIndex(i => i.id === item.id);
+      if (updatedItems.length > 0 && remainingIndex < updatedItems.length) {
+        setActiveDetailItem(updatedItems[remainingIndex]);
+      } else if (updatedItems.length > 0) {
+        setActiveDetailItem(updatedItems[updatedItems.length - 1]);
+      } else {
+        setActiveDetailItem(null);
+      }
+    }
+
+    setFocusedIndex(prev => Math.max(0, Math.min(prev, updatedItems.length - 1)));
+    showNotification(`Approved ${item.title} — Logged to SHA-256 ledger (Block #${newAuditEntry.index})`);
+  }, [auditLedger, items, activeDetailItem, persistChanges, showNotification]);
+
+  // Batch approve timing differences for active client
+  const handleBatchApproveTiming = useCallback(async () => {
+    const timingItems = items.filter(i => i.category === 'TIMING');
+    if (timingItems.length === 0) {
+      showNotification("No timing differences currently in review list.");
+      return;
+    }
+
+    let lastHash = auditLedger[auditLedger.length - 1]?.entryHash || '0'.repeat(64);
+    const newEntries: AuditEntry[] = [];
+
+    for (let i = 0; i < timingItems.length; i++) {
+      const it = timingItems[i];
+      const entry = await createAuditEntry(
+        auditLedger.length + i,
+        "Chirag (Audit Partner)",
+        "BATCH_TIMING_APPROVE",
+        it.id,
+        it.title,
+        `Batch approved under Section 16(2)(aa) 30-day window. Amount: ${it.amount}`,
+        lastHash
+      );
+      newEntries.push(entry);
+      lastHash = entry.entryHash;
+    }
+
+    const updatedLedger = [...auditLedger, ...newEntries];
+    const updatedItems = items.filter(i => i.category !== 'TIMING');
+
+    setAuditLedger(updatedLedger);
+    setItems(updatedItems);
+    persistChanges(updatedItems, updatedLedger);
+    setFocusedIndex(0);
+
+    if (activeDetailItem && activeDetailItem.category === 'TIMING') {
+      setActiveDetailItem(updatedItems[0] || null);
+    }
+
+    showNotification(`Batch approved ${timingItems.length} timing differences for ${activeClient.name}`);
+  }, [items, auditLedger, activeDetailItem, activeClient.name, persistChanges, showNotification]);
+
+  // Save manual edit / reclassification for active client
+  const handleSaveEdit = useCallback(async (item: ReviewItem, updatedLedgerAccount: string, reason: string) => {
+    const lastEntry = auditLedger[auditLedger.length - 1];
+    const prevHash = lastEntry ? lastEntry.entryHash : '0'.repeat(64);
+
+    const newAuditEntry = await createAuditEntry(
+      auditLedger.length,
+      "Chirag (Audit Partner)",
+      "LEDGER_RECLASSIFICATION",
+      item.id,
+      item.title,
+      `Ledger overridden to '${updatedLedgerAccount}'. Note: ${reason}`,
+      prevHash
+    );
+
+    const updatedLedger = [...auditLedger, newAuditEntry];
+    setAuditLedger(updatedLedger);
+    persistChanges(items, updatedLedger);
+    setEditingItem(null);
+    showNotification(`Updated ledger for ${item.title} — Logged to SHA-256 chain`);
+  }, [auditLedger, items, persistChanges, showNotification]);
+
+  // Reset active client demo state
+  const handleResetClientData = useCallback(() => {
+    const fresh = resetClientData(activeClient.id);
+    setItems(fresh.items);
+    setAuditLedger(fresh.auditLedger);
+    setActiveDetailItem(null);
+    showNotification(`Reset ${activeClient.name} database to initial state`);
+  }, [activeClient.id, activeClient.name, showNotification]);
+
+  // Keyboard navigation & shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      // Guard against typing in form inputs
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
+        if (e.key === 'Escape') {
+          target.blur();
         }
-      },
-      onBatchApprove: handleBatchApproveTiming,
-      onSearch: () => setIsSearchOpen(true),
-      onHelp: () => setIsHelpOpen(true),
-      onEdit: () => {
-        if (exceptions.length > 0 && exceptions[selectedIndex]) {
-          handleEdit(exceptions[selectedIndex].id);
+        return;
+      }
+
+      // Modals handle their own Esc
+      if (isClientModalOpen || editingItem) {
+        if (e.key === 'Escape') {
+          setIsClientModalOpen(false);
+          setEditingItem(null);
+        }
+        return;
+      }
+
+      if (isHelpModalOpen) {
+        if (e.key === 'Escape') setIsHelpModalOpen(false);
+        return;
+      }
+
+      // If Third Pane is open, handle its shortcuts
+      if (activeDetailItem) {
+        if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          handleApproveItem(activeDetailItem);
+          return;
+        }
+        if (e.key.toLowerCase() === 'e' && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          setEditingItem(activeDetailItem);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setActiveDetailItem(null);
+          return;
         }
       }
-    },
-    { enabled: !isSearchOpen && !isHelpOpen }
-  );
 
-  const selectedItem = exceptions[selectedIndex];
+      // Help Modal Toggle
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setIsHelpModalOpen(true);
+        return;
+      }
+
+      // Navigation in review list (Exceptions tab or Home)
+      const key = e.key.toLowerCase();
+
+      if ((key === 'j' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setFocusedIndex(prev => {
+          const next = Math.min(prev + 1, Math.max(0, items.length - 1));
+          if (activeDetailItem && items[next]) {
+            setActiveDetailItem(items[next]);
+          }
+          return next;
+        });
+        return;
+      }
+
+      if ((key === 'k' || e.key === 'ArrowUp') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setFocusedIndex(prev => {
+          const next = Math.max(prev - 1, 0);
+          if (activeDetailItem && items[next]) {
+            setActiveDetailItem(items[next]);
+          }
+          return next;
+        });
+        return;
+      }
+
+      // Open in Third Pane
+      if ((key === 'r' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        if (items[focusedIndex]) {
+          setActiveDetailItem(items[focusedIndex]);
+        }
+        return;
+      }
+
+      // Direct Approve highlighted item
+      if (key === 'a' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        if (items[focusedIndex]) {
+          handleApproveItem(items[focusedIndex]);
+        }
+        return;
+      }
+
+      // Edit highlighted item
+      if (key === 'e' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        if (items[focusedIndex]) {
+          setEditingItem(items[focusedIndex]);
+        }
+        return;
+      }
+
+      // Space to batch approve timing differences
+      if (e.key === ' ' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        handleBatchApproveTiming();
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    items,
+    focusedIndex,
+    activeDetailItem,
+    isClientModalOpen,
+    editingItem,
+    isHelpModalOpen,
+    handleApproveItem,
+    handleBatchApproveTiming
+  ]);
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-obsidian-950 text-neutral-100 font-sans">
-      {/* Persistent App Header & Air-Gap Sentinel */}
-      <Header clientName={activeClient} onReset={() => setExceptions(INITIAL_EXCEPTIONS)} />
-
-      {/* Accessible Notification Toast with ARIA Live Region */}
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0f1115] text-[#e8eaf0] font-sans antialiased">
+      {/* Toast Notification */}
       {notification && (
-        <div 
-          role="status" 
+        <div
+          role="status"
           aria-live="polite"
-          className="fixed top-14 right-6 z-50 px-4 py-2.5 rounded-lg bg-emerald-600/90 text-white text-xs font-medium shadow-2xl border border-emerald-400/40 backdrop-blur-md animate-in fade-in slide-in-from-top-2"
+          className="fixed top-5 right-6 z-50 px-4 py-2.5 rounded-md bg-[#171a21] border border-[#262a33] text-[#e8eaf0] text-xs font-medium shadow-lg animate-in fade-in slide-in-from-top-2"
         >
           {notification}
         </div>
       )}
 
-      {/* 3-Pane Desktop Workspace Shell */}
-      <div className="flex flex-1 overflow-hidden">
-        
-        {/* Pane 1: Left Navigation & Client Switcher (240px) */}
-        <aside className="w-60 border-r border-obsidian-800 bg-obsidian-950/80 flex flex-col justify-between shrink-0 select-none">
-          <div className="p-3 space-y-4">
-            {/* Client Switcher */}
-            <div>
-              <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider mb-1.5 px-2">Active Client</div>
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-obsidian-900 border border-obsidian-700/80 cursor-pointer hover:border-emerald-500/50 transition">
-                <Building2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span className="text-xs font-medium text-neutral-200 truncate">ACME Manufacturing</span>
-              </div>
-            </div>
+      {/* Pane 1: Sidebar (220px, exactly 6 places) */}
+      <aside className="cockpit-aside">
+        <div className="cockpit-brand">
+          AuditCockpit
+          <span>Audit &amp; reconciliation</span>
+        </div>
 
-            {/* Global Sections */}
-            <nav className="space-y-1">
-              <button 
-                type="button"
-                onClick={() => setCurrentView('today')}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
-                  currentView === 'today' 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
-                }`}
-              >
-                <Clock className="w-4 h-4" />
-                <span>Today (Dashboard)</span>
-              </button>
+        <button
+          type="button"
+          onClick={() => setActiveNav('home')}
+          className={`cockpit-nav-item ${activeNav === 'home' ? 'active' : ''}`}
+        >
+          <span>Home</span>
+        </button>
 
-              <button 
-                type="button"
-                onClick={() => setIsSearchOpen(true)}
-                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition"
-              >
-                <Search className="w-4 h-4" />
-                <span>Find Invoice</span>
-                <span className="ml-auto text-[10px] font-mono bg-obsidian-800 px-1.5 py-0.5 rounded text-neutral-400">Ctrl+K</span>
-              </button>
+        <button
+          type="button"
+          onClick={() => setActiveNav('exceptions')}
+          className={`cockpit-nav-item ${activeNav === 'exceptions' ? 'active' : ''}`}
+        >
+          <span>Exceptions</span>
+          {items.length > 0 && (
+            <span className="cockpit-count">{items.length}</span>
+          )}
+        </button>
 
-              <button 
-                type="button"
-                onClick={() => setCurrentView('queue')}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
-                  currentView === 'queue' 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
-                }`}
-              >
-                <AlertTriangle className="w-4 h-4" />
-                <span>Exception Queue</span>
-                {exceptions.length > 0 && (
-                  <span className="ml-auto text-[10px] font-mono bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-bold">
-                    {exceptions.length}
-                  </span>
-                )}
-              </button>
+        <button
+          type="button"
+          onClick={() => setActiveNav('reconciliation')}
+          className={`cockpit-nav-item ${activeNav === 'reconciliation' ? 'active' : ''}`}
+        >
+          <span>Reconciliation</span>
+        </button>
 
-              <button 
-                type="button"
-                onClick={() => setCurrentView('reconciliation')}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
-                  currentView === 'reconciliation' 
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                    : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
-                }`}
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Reconciliation</span>
-              </button>
-            </nav>
+        <button
+          type="button"
+          onClick={() => setActiveNav('deadlines')}
+          className={`cockpit-nav-item ${activeNav === 'deadlines' ? 'active' : ''}`}
+        >
+          <span>Deadlines</span>
+        </button>
 
-            {/* Statutory & Audit Section */}
-            <div className="pt-2 border-t border-obsidian-800">
-              <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-wider mb-1.5 px-2">Statutory & Audit</div>
-              <nav className="space-y-1">
-                <button 
-                  type="button"
-                  onClick={() => setCurrentView('audit')}
-                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition ${
-                    currentView === 'audit' 
-                      ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                      : 'text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60'
-                  }`}
-                >
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>SHA-256 Audit Trail</span>
-                </button>
-              </nav>
-            </div>
-          </div>
+        <button
+          type="button"
+          onClick={() => setActiveNav('audit')}
+          className={`cockpit-nav-item ${activeNav === 'audit' ? 'active' : ''}`}
+        >
+          <span>Audit trail</span>
+        </button>
 
-          {/* Sidebar Footer */}
-          <div className="p-3 border-t border-obsidian-800 space-y-1">
-            <button 
-              type="button"
-              onClick={() => setIsHelpOpen(true)}
-              className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs text-neutral-400 hover:text-neutral-200 hover:bg-obsidian-900/60 transition"
-            >
-              <span className="flex items-center gap-2">
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>Hotkeys Cheat Sheet</span>
-              </span>
-              <kbd className="font-mono text-[10px] bg-obsidian-800 px-1 py-0.5 rounded">?</kbd>
-            </button>
-          </div>
-        </aside>
+        {/* 6th Place: Active Client Workspace Switcher */}
+        <div
+          className="cockpit-client"
+          onClick={() => setIsClientModalOpen(true)}
+          role="button"
+          tabIndex={0}
+          title="Click to switch client workspace"
+        >
+          <strong className="truncate">{activeClient.name}</strong>
+          <span className="text-xs text-[#8a909c] block mt-0.5">Click to switch client</span>
+        </div>
+      </aside>
 
-        {/* Pane 2: Centre Worklist / Views (Flex 1) */}
-        <main className="flex-1 border-r border-obsidian-800 bg-obsidian-950 p-6 overflow-y-auto">
-          <div className="max-w-4xl mx-auto">
-            {currentView === 'today' && (
-              <TodayDashboard 
-                onOpenQueue={() => setCurrentView('queue')} 
-                onOpenRecon={() => setCurrentView('reconciliation')} 
-              />
-            )}
+      {/* Pane 2: Centre Main Area */}
+      <main className="cockpit-main">
+        <div className="cockpit-content">
+          {activeNav === 'home' && (
+            <HomeView
+              client={activeClient}
+              items={items}
+              auditLedger={auditLedger}
+              onOpenItemInThirdPane={(item) => setActiveDetailItem(item)}
+              onNavigate={(view) => setActiveNav(view)}
+            />
+          )}
 
-            {currentView === 'queue' && (
-              <ExceptionQueue
-                items={exceptions}
-                selectedIndex={selectedIndex}
-                onSelect={(idx) => setSelectedIndex(idx)}
-                onApprove={handleApprove}
-                onBatchApproveTiming={handleBatchApproveTiming}
-              />
-            )}
+          {activeNav === 'exceptions' && (
+            <ReviewList
+              items={items}
+              focusedIndex={focusedIndex}
+              activeItemId={activeDetailItem?.id}
+              onOpenDetail={(item) => setActiveDetailItem(item)}
+              onResetItems={handleResetClientData}
+            />
+          )}
 
-            {currentView === 'reconciliation' && (
-              <div className="space-y-4">
-                <h2 className="text-xl font-bold text-neutral-100">Deterministic Two-Column Reconciliation</h2>
-                <p className="text-xs text-neutral-400">
-                  482 matched pairs reconciled within +- ₹1.00 tolerance. 0 hallucinations.
-                </p>
-                <div className="p-8 rounded-xl bg-obsidian-900 border border-obsidian-800 text-center text-xs text-neutral-400">
-                  All matched invoices are cryptographically locked and exportable to Tally XML.
-                </div>
-              </div>
-            )}
+          {activeNav === 'reconciliation' && (
+            <ReconciliationView client={activeClient} />
+          )}
 
-            {currentView === 'audit' && (
-              <div className="space-y-4">
-                <h2 className="text-xl font-bold text-neutral-100 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                  <span>Tamper-Evident SHA-256 Audit Ledger</span>
-                </h2>
-                <p className="text-xs text-neutral-400">
-                  Cryptographically chained hash tree. Every approval, rejection, and ledger override is permanently recorded.
-                </p>
-                <div className="p-4 rounded-xl bg-obsidian-900 border border-emerald-500/20 text-xs text-emerald-300 font-mono flex items-center justify-between">
-                  <span>CHAIN STATUS: VALID & IMMUTABLE (Genesis Hash: 00000000... verified)</span>
-                  <span className="bg-emerald-500/20 px-2 py-0.5 rounded">Passed 100%</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </main>
+          {activeNav === 'deadlines' && (
+            <DeadlinesView />
+          )}
 
-        {/* Pane 3: Right Inspection Loupe (320px) */}
-        <aside className="w-80 bg-obsidian-950/90 shrink-0">
-          <DetailInspectionLoupe
-            item={selectedItem}
-            onApprove={handleApprove}
-            onEdit={handleEdit}
-          />
-        </aside>
+          {activeNav === 'audit' && (
+            <AuditTrailView client={activeClient} entries={auditLedger} />
+          )}
+        </div>
 
-      </div>
+        {/* Chat-style Input at the Bottom */}
+        <ComposerInput
+          items={items}
+          onOpenDetail={(item) => setActiveDetailItem(item)}
+          onApproveItem={handleApproveItem}
+          onNavigateToView={(view) => setActiveNav(view)}
+        />
+      </main>
 
-      {/* Omni-Search Modal (Ctrl + K) */}
-      <OmniSearchModal
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        items={exceptions}
-        onSelectItem={(item) => {
-          setCurrentView('queue');
-          const idx = exceptions.findIndex(e => e.id === item.id);
-          if (idx !== -1) setSelectedIndex(idx);
-        }}
+      {/* Pane 3: Third Pane Inspection Loupe (Opens when an item is selected) */}
+      {activeDetailItem && (
+        <DetailPanel
+          item={activeDetailItem}
+          onClose={() => setActiveDetailItem(null)}
+          onApprove={handleApproveItem}
+          onEdit={(item) => setEditingItem(item)}
+        />
+      )}
+
+      {/* Edit Ledger Modal */}
+      <EditModal
+        item={editingItem}
+        onClose={() => setEditingItem(null)}
+        onSave={handleSaveEdit}
       />
 
-      {/* Keyboard Shortcuts Cheat Sheet Modal (?) */}
-      {isHelpOpen && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-          onClick={() => setIsHelpOpen(false)}
-        >
-          <div 
-            role="dialog"
-            aria-modal="true"
-            aria-label="Keyboard Shortcuts Matrix"
-            className="w-full max-w-md rounded-xl bg-obsidian-900 border border-obsidian-700 p-5 space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between pb-2 border-b border-obsidian-800">
-              <h3 className="text-sm font-bold text-neutral-100">Keyboard Shortcuts Matrix</h3>
-              <button 
-                type="button"
-                onClick={() => setIsHelpOpen(false)} 
-                className="text-neutral-400 hover:text-neutral-200 transition active:scale-95"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex justify-between p-2 rounded bg-obsidian-950">
-                <span className="text-neutral-400">Next Item</span>
-                <kbd className="font-mono text-emerald-400 font-bold">J / ↓</kbd>
-              </div>
-              <div className="flex justify-between p-2 rounded bg-obsidian-950">
-                <span className="text-neutral-400">Previous Item</span>
-                <kbd className="font-mono text-emerald-400 font-bold">K / ↑</kbd>
-              </div>
-              <div className="flex justify-between p-2 rounded bg-obsidian-950">
-                <span className="text-neutral-400">Approve</span>
-                <kbd className="font-mono text-emerald-400 font-bold">A / Enter</kbd>
-              </div>
-              <div className="flex justify-between p-2 rounded bg-obsidian-950">
-                <span className="text-neutral-400">Batch Timing</span>
-                <kbd className="font-mono text-emerald-400 font-bold">Space</kbd>
-              </div>
-              <div className="flex justify-between p-2 rounded bg-obsidian-950">
-                <span className="text-neutral-400">Find Invoice</span>
-                <kbd className="font-mono text-emerald-400 font-bold">Ctrl+K / /</kbd>
-              </div>
-              <div className="flex justify-between p-2 rounded bg-obsidian-950">
-                <span className="text-neutral-400">Edit Ledger</span>
-                <kbd className="font-mono text-emerald-400 font-bold">E</kbd>
-              </div>
-            </div>
-            <div className="pt-2 text-[10px] text-neutral-400 text-center font-mono">
-              Press Esc or click outside to dismiss
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Client Workspace Switcher Modal */}
+      <ClientSwitcherModal
+        isOpen={isClientModalOpen}
+        activeClient={activeClient}
+        onSelectClient={handleSelectClient}
+        onClose={() => setIsClientModalOpen(false)}
+      />
+
+      {/* Keyboard Shortcuts Matrix Modal (?) */}
+      <KeyboardHelpModal
+        isOpen={isHelpModalOpen}
+        onClose={() => setIsHelpModalOpen(false)}
+      />
     </div>
   );
 };
