@@ -553,4 +553,113 @@ export const INITIAL_REVIEW_ITEMS: ReviewItem[] = [
       }
     ]
   }
+,
+  {
+    id: "rev-009",
+    title: "Tata Tele Business Services Ltd",
+    meta: "Invoice number format variation · Slash vs hyphen",
+    amount: "₹99,120",
+    rawAmountPaise: 9912000,
+    identifier: "27AAACT2727Q1ZW",
+    booksInvoice: "TI/24-25/00482",
+    gstrInvoice: "TI-24-25-00482",
+    books: "₹99,120",
+    gstr: "₹99,120",
+    why: "Client books record invoice as 'TI/24-25/00482' whereas vendor filed 'TI-24-25-00482'. Amounts and GSTIN agree paise-exact. Covered under Circular 183/15/2022-GST clarifying typographical discrepancies.",
+    category: "TYPO",
+    booksDate: "15/09/2024",
+    filingDate: "15/09/2024",
+    confidenceScore: 0.96,
+    ruleId: "CIRCULAR-183-TYPO",
+    ruleName: "CBIC Circular 183/15/2022-GST (Typographical errors in invoice numbering)",
+    ruleEffectiveDate: "27/12/2022 to Present",
+    ruleVerified: true,
+    assignedLedger: "Telephone & Internet Charges",
+    agreedFields: [
+      "Total Amount: ₹99,120 (Paise exact)",
+      "Supplier GSTIN: 27AAACT2727Q1ZW",
+      "Invoice Date: 15/09/2024"
+    ],
+    differingFields: [
+      "Invoice Number: TI/24-25/00482 (Books) vs TI-24-25-00482 (Portal) · Punctuation variance"
+    ],
+    sourceSnippet: {
+      label: "Tax Invoice Number",
+      field: "Invoice Number",
+      ocrValue: "TI/24-25/00482",
+      box: [240, 58, 140, 24]
+    },
+    extractedFields: [
+      {
+        id: "f-009-inv",
+        label: "Invoice Number",
+        field: "invoiceNumber",
+        ocrValue: "TI/24-25/00482",
+        confidence: 0.96,
+        box: [240, 58, 140, 24]
+      },
+      {
+        id: "f-009-total",
+        label: "Gross Amount",
+        field: "totalAmount",
+        ocrValue: "99,120.00",
+        confidence: 0.98,
+        box: [260, 390, 140, 26]
+      }
+    ]
+  },
+  {
+    id: "rev-010",
+    title: "DHL Express India Pvt Ltd",
+    meta: "Timing difference · 8 days",
+    amount: "₹34,500",
+    rawAmountPaise: 3450000,
+    identifier: "27AAACD1122M1ZQ",
+    booksInvoice: "DHL/2024/441",
+    gstrInvoice: "DHL/2024/441",
+    books: "₹34,500",
+    gstr: "₹34,500",
+    why: "Invoice recorded on 10 Sep in client books, uploaded on 18 Sep in GSTR-2B. Both agree on ₹34,500 paise-exact. Filed within statutory filing window under Rule 36(4).",
+    category: "TIMING",
+    booksDate: "10/09/2024",
+    filingDate: "18/09/2024",
+    confidenceScore: 0.98,
+    ruleId: "SEC-16-2-AA",
+    ruleName: "Section 16(2)(aa) CGST Act, 2017 & Rule 36(4)",
+    ruleEffectiveDate: "01/01/2022 to Present",
+    ruleVerified: true,
+    assignedLedger: "Courier & Freight Expenses",
+    agreedFields: [
+      "Total Amount: ₹34,500 (Paise exact)",
+      "Invoice Number: DHL/2024/441",
+      "Supplier GSTIN: 27AAACD1122M1ZQ"
+    ],
+    differingFields: [
+      "Invoice Date: 10/09/2024 (Books) vs 18/09/2024 (GSTR-2B) · 8-day timing delta"
+    ],
+    sourceSnippet: {
+      label: "Consignment Total Value",
+      field: "Total Invoice Value",
+      ocrValue: "34,500.00",
+      box: [280, 410, 160, 28]
+    },
+    extractedFields: [
+      {
+        id: "f-010-inv",
+        label: "Invoice Number",
+        field: "invoiceNumber",
+        ocrValue: "DHL/2024/441",
+        confidence: 0.98,
+        box: [240, 60, 150, 24]
+      },
+      {
+        id: "f-010-total",
+        label: "Total Amount",
+        field: "totalAmount",
+        ocrValue: "34,500.00",
+        confidence: 0.98,
+        box: [280, 410, 160, 28]
+      }
+    ]
+  }
 ];

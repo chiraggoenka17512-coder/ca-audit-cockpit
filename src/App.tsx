@@ -10,6 +10,7 @@ import {
 import { ReviewItem } from './data/reviewItems';
 import { HomeView } from './components/views/HomeView';
 import { ReviewList } from './components/ReviewList';
+import { ExceptionQueue, ExceptionCategory } from './components/queue/ExceptionQueue';
 import { DetailPanel } from './components/DetailPanel';
 import { ComposerInput } from './components/ComposerInput';
 import { ReconciliationView } from './components/views/ReconciliationView';
@@ -264,6 +265,59 @@ export const App: React.FC = () => {
     showNotification(`Rejected ${item.title} — Logged to SHA-256 ledger (Block #${newAuditEntry.index})`);
   }, [auditLedger, items, activeDetailItem, persistChanges, showNotification]);
 
+  // Batch approve any exception group with statutory citation
+  const handleBatchApproveGroup = useCallback(async (groupCategory: ExceptionCategory | string, groupItems: any[]) => {
+    const rawItems: ReviewItem[] = groupItems.map(g => (g.originalItem ? g.originalItem : g));
+    const itemsToApproveWithIndices = rawItems.map(item => ({
+      item,
+      originalIndex: items.findIndex(i => i.id === item.id)
+    }));
+
+    if (itemsToApproveWithIndices.length === 0) {
+      showNotification("No items to batch approve in this category.");
+      return;
+    }
+
+    let lastHash = auditLedger[auditLedger.length - 1]?.entryHash || '0'.repeat(64);
+    const newEntries: AuditEntry[] = [];
+    const groupDescription = groupCategory.toLowerCase().replace(/_/g, ' ');
+
+    for (let i = 0; i < itemsToApproveWithIndices.length; i++) {
+      const { item: it } = itemsToApproveWithIndices[i];
+      const entry = await createAuditEntry(
+        auditLedger.length + i,
+        "Chirag (Audit Partner)",
+        "BATCH_APPROVAL",
+        it.id,
+        it.title,
+        `Batch approved (${groupDescription}). Rule: ${it.ruleName || 'Statutory tolerance'}. Amount: ${it.amount}`,
+        lastHash
+      );
+      newEntries.push(entry);
+      lastHash = entry.entryHash;
+    }
+
+    const approvedIds = new Set(rawItems.map(i => i.id));
+    const updatedLedger = [...auditLedger, ...newEntries];
+    const updatedItems = items.filter(i => !approvedIds.has(i.id));
+
+    setAuditLedger(updatedLedger);
+    setItems(updatedItems);
+    persistChanges(updatedItems, updatedLedger);
+    setFocusedIndex(0);
+
+    setUndoStack(prev => pushUndoAction(
+      prev,
+      createBatchApprovalUndo(itemsToApproveWithIndices, newEntries, groupDescription)
+    ));
+
+    if (activeDetailItem && approvedIds.has(activeDetailItem.id)) {
+      setActiveDetailItem(updatedItems[0] || null);
+    }
+
+    showNotification(`Batch approved ${rawItems.length} vouchers in ${groupDescription} for ${activeClient.name}`);
+  }, [items, auditLedger, activeDetailItem, activeClient.name, persistChanges, showNotification]);
+
   // Batch approve timing differences for active client
   const handleBatchApproveTiming = useCallback(async () => {
     const timingItemsWithIndices = items
@@ -506,6 +560,9 @@ export const App: React.FC = () => {
       }
 
       // Navigation in review list (Exceptions tab or Home)
+      if (activeNav === 'exceptions') {
+        return; // ExceptionQueue manages its own root-cause grouping, active item focus, and batch confirmation
+      }
       if ((key === 'j' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setFocusedIndex(prev => {
@@ -579,7 +636,8 @@ export const App: React.FC = () => {
     isHelpModalOpen,
     handleApproveItem,
     handleBatchApproveTiming,
-    handleUndo
+    handleUndo,
+    activeNav
   ]);
 
   return (
@@ -700,10 +758,15 @@ export const App: React.FC = () => {
             )}
 
             {activeNav === 'exceptions' && (
-              <ReviewList
+              <ExceptionQueue
                 items={items}
                 focusedIndex={focusedIndex}
-                activeItemId={activeDetailItem?.id}
+                onSelect={(idx) => setFocusedIndex(idx)}
+                onApproveItem={handleApproveItem}
+                onRejectItem={handleRejectItem}
+                onEditItem={(item) => setEditingItem(item)}
+                onBatchApprove={handleBatchApproveGroup}
+                onBatchApproveTiming={handleBatchApproveTiming}
                 onOpenDetail={(item) => setActiveDetailItem(item)}
                 onResetItems={handleResetClientData}
               />

@@ -238,7 +238,7 @@ export async function executeUndo({
           success: true,
           restoredItems: updatedItems,
           newAuditEntry,
-          toastMessage: `Undone: Batch approval of ${items.length} timing differences restored to review queue`,
+          toastMessage: `Undone: Batch approval of ${items.length} ${batchDescription || 'timing differences'} restored to review queue`,
           activeItem: firstItem,
           focusedIndex: Math.min(firstIndex, updatedItems.length - 1),
           actionUndone: 'BATCH_APPROVAL'

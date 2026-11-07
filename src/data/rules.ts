@@ -79,6 +79,16 @@ export const STATUTORY_RULES: Record<string, StatutoryRuleDefinition> = {
     verified: false,
     legalText: "Proposed non-statutory levy on interstate freight corridors for infrastructure maintenance. No official notification has been promulgated under Article 279A.",
     guidanceNote: "UNVERIFIED RULE: Source circular cannot be cryptographically verified. Do not rely on this rule for automated tax conclusions or filing decisions."
+  },
+  "CIRCULAR-183-TYPO": {
+    id: "CIRCULAR-183-TYPO",
+    name: "CBIC Circular 183/15/2022-GST (Typographical errors in invoice numbering)",
+    effectiveFrom: "27/12/2022",
+    effectiveTo: "Present",
+    sourceAuthority: "CBIC Circular No. 183/15/2022-GST / Clarification on ITC under Section 16(2)(c)",
+    verified: true,
+    legalText: "Where the invoice number is wrongly reported in GSTR-1 by the supplier (e.g. slash vs hyphen, missing leading zero), but the tax has been paid and the supply is verified, the input tax credit shall not be denied to the recipient.",
+    guidanceNote: "Typographical variations in invoice numbering (such as leading zeros, slashes, or hyphens) where vendor GSTIN and total amounts match exactly are rectifiable under Circular 183/15/2022-GST. Full ITC admissible upon confirmation."
   }
 };
 
