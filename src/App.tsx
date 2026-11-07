@@ -23,6 +23,15 @@ import { EditModal } from './components/EditModal';
 import { KeyboardHelpModal } from './components/KeyboardHelpModal';
 import { InvoiceFinderModal } from './components/InvoiceFinderModal';
 import { AuditEntry, createAuditEntry } from './engine/auditLedger';
+import { 
+  UndoableAction, 
+  pushUndoAction, 
+  createSingleApprovalUndo, 
+  createBatchApprovalUndo, 
+  createLedgerEditUndo, 
+  createRejectionUndo, 
+  executeUndo 
+} from './engine/sessionUndo';
 
 type NavSection = 'home' | 'exceptions' | 'reconciliation' | 'deadlines' | 'audit';
 
@@ -62,6 +71,9 @@ export const App: React.FC = () => {
   const [items, setItems] = useState<ReviewItem[]>(() => loadClientData(activeClient.id).items);
   const [auditLedger, setAuditLedger] = useState<AuditEntry[]>(() => loadClientData(activeClient.id).auditLedger);
 
+  // Session Undo Stack (In-Memory per session)
+  const [undoStack, setUndoStack] = useState<UndoableAction[]>([]);
+
   // Third Pane (Inspection Loupe) & Selection State
   const [activeDetailItem, setActiveDetailItem] = useState<ReviewItem | null>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
@@ -97,6 +109,7 @@ export const App: React.FC = () => {
     setActiveDetailItem(null);
     setFocusedIndex(0);
     setEditingItem(null);
+    setUndoStack([]);
     showNotification(`Switched database to ${targetClient.name} (AES-GCM-256 isolated)`);
   }, [showNotification]);
 
@@ -165,6 +178,7 @@ export const App: React.FC = () => {
 
   // Approve single item -> append SHA-256 block to client ledger & persist
   const handleApproveItem = useCallback(async (item: ReviewItem) => {
+    const originalIndex = items.findIndex(i => i.id === item.id);
     const lastEntry = auditLedger[auditLedger.length - 1];
     const prevHash = lastEntry ? lastEntry.entryHash : '0'.repeat(64);
 
@@ -185,6 +199,12 @@ export const App: React.FC = () => {
     setItems(updatedItems);
     persistChanges(updatedItems, updatedLedger);
 
+    // Push action to in-memory session undo stack
+    setUndoStack(prev => pushUndoAction(
+      prev, 
+      createSingleApprovalUndo(item, originalIndex >= 0 ? originalIndex : 0, newAuditEntry)
+    ));
+
     if (activeDetailItem?.id === item.id) {
       const remainingIndex = items.findIndex(i => i.id === item.id);
       if (updatedItems.length > 0 && remainingIndex < updatedItems.length) {
@@ -200,10 +220,57 @@ export const App: React.FC = () => {
     showNotification(`Approved ${item.title} — Logged to SHA-256 ledger (Block #${newAuditEntry.index})`);
   }, [auditLedger, items, activeDetailItem, persistChanges, showNotification]);
 
+  // Reject single item -> append SHA-256 block to client ledger & persist
+  const handleRejectItem = useCallback(async (item: ReviewItem) => {
+    const originalIndex = items.findIndex(i => i.id === item.id);
+    const lastEntry = auditLedger[auditLedger.length - 1];
+    const prevHash = lastEntry ? lastEntry.entryHash : '0'.repeat(64);
+
+    const newAuditEntry = await createAuditEntry(
+      auditLedger.length,
+      "Chirag (Audit Partner)",
+      "REJECTED_MATCH",
+      item.id,
+      `${item.title} (${item.booksInvoice})`,
+      `Rejected match between books (${item.books}) and portal (${item.gstr}). Reason: Marked for audit query.`,
+      prevHash
+    );
+
+    const updatedLedger = [...auditLedger, newAuditEntry];
+    const updatedItems = items.filter(i => i.id !== item.id);
+
+    setAuditLedger(updatedLedger);
+    setItems(updatedItems);
+    persistChanges(updatedItems, updatedLedger);
+
+    // Push action to in-memory session undo stack
+    setUndoStack(prev => pushUndoAction(
+      prev, 
+      createRejectionUndo(item, originalIndex >= 0 ? originalIndex : 0, newAuditEntry)
+    ));
+
+    if (activeDetailItem?.id === item.id) {
+      const remainingIndex = items.findIndex(i => i.id === item.id);
+      if (updatedItems.length > 0 && remainingIndex < updatedItems.length) {
+        setActiveDetailItem(updatedItems[remainingIndex]);
+      } else if (updatedItems.length > 0) {
+        setActiveDetailItem(updatedItems[updatedItems.length - 1]);
+      } else {
+        setActiveDetailItem(null);
+      }
+    }
+
+    setFocusedIndex(prev => Math.max(0, Math.min(prev, updatedItems.length - 1)));
+    showNotification(`Rejected ${item.title} — Logged to SHA-256 ledger (Block #${newAuditEntry.index})`);
+  }, [auditLedger, items, activeDetailItem, persistChanges, showNotification]);
+
   // Batch approve timing differences for active client
   const handleBatchApproveTiming = useCallback(async () => {
-    const timingItems = items.filter(i => i.category === 'TIMING');
-    if (timingItems.length === 0) {
+    const timingItemsWithIndices = items
+      .map((item, originalIndex) => ({ item, originalIndex }))
+      .filter(({ item }) => item.category === 'TIMING');
+
+    if (timingItemsWithIndices.length === 0) {
       showNotification("No timing differences currently in review list.");
       return;
     }
@@ -211,8 +278,8 @@ export const App: React.FC = () => {
     let lastHash = auditLedger[auditLedger.length - 1]?.entryHash || '0'.repeat(64);
     const newEntries: AuditEntry[] = [];
 
-    for (let i = 0; i < timingItems.length; i++) {
-      const it = timingItems[i];
+    for (let i = 0; i < timingItemsWithIndices.length; i++) {
+      const { item: it } = timingItemsWithIndices[i];
       const entry = await createAuditEntry(
         auditLedger.length + i,
         "Chirag (Audit Partner)",
@@ -234,15 +301,23 @@ export const App: React.FC = () => {
     persistChanges(updatedItems, updatedLedger);
     setFocusedIndex(0);
 
+    // Push batch approval to session undo stack
+    setUndoStack(prev => pushUndoAction(
+      prev, 
+      createBatchApprovalUndo(timingItemsWithIndices, newEntries, 'timing differences')
+    ));
+
     if (activeDetailItem && activeDetailItem.category === 'TIMING') {
       setActiveDetailItem(updatedItems[0] || null);
     }
 
-    showNotification(`Batch approved ${timingItems.length} timing differences for ${activeClient.name}`);
+    showNotification(`Batch approved ${timingItemsWithIndices.length} timing differences for ${activeClient.name}`);
   }, [items, auditLedger, activeDetailItem, activeClient.name, persistChanges, showNotification]);
 
   // Save manual edit / reclassification for active client
   const handleSaveEdit = useCallback(async (item: ReviewItem, updatedLedgerAccount: string, reason: string) => {
+    const currentItem = items.find(i => i.id === item.id) || item;
+    const previousLedger = currentItem.assignedLedger;
     const lastEntry = auditLedger[auditLedger.length - 1];
     const prevHash = lastEntry ? lastEntry.entryHash : '0'.repeat(64);
 
@@ -257,11 +332,59 @@ export const App: React.FC = () => {
     );
 
     const updatedLedger = [...auditLedger, newAuditEntry];
+    const updatedItems = items.map(i => 
+      i.id === item.id ? { ...i, assignedLedger: updatedLedgerAccount } : i
+    );
+
     setAuditLedger(updatedLedger);
-    persistChanges(items, updatedLedger);
+    setItems(updatedItems);
+    persistChanges(updatedItems, updatedLedger);
+
+    if (activeDetailItem?.id === item.id) {
+      setActiveDetailItem({ ...activeDetailItem, assignedLedger: updatedLedgerAccount });
+    }
+
+    // Push ledger edit to in-memory session undo stack
+    setUndoStack(prev => pushUndoAction(
+      prev,
+      createLedgerEditUndo(item, previousLedger, updatedLedgerAccount, undefined, reason, newAuditEntry)
+    ));
+
     setEditingItem(null);
     showNotification(`Updated ledger for ${item.title} — Logged to SHA-256 chain`);
-  }, [auditLedger, items, persistChanges, showNotification]);
+  }, [auditLedger, items, activeDetailItem, persistChanges, showNotification]);
+
+  // Flow 16: Session Undo Execution
+  const handleUndo = useCallback(async () => {
+    if (undoStack.length === 0) {
+      showNotification("Nothing to undo in current session");
+      return;
+    }
+
+    const { result, nextStack } = await executeUndo({
+      stack: undoStack,
+      currentItems: items,
+      auditLedger,
+      actor: "Chirag (Audit Partner)"
+    });
+
+    if (!result.success) {
+      showNotification(result.reason);
+      return;
+    }
+
+    setUndoStack(nextStack);
+    const updatedLedger = [...auditLedger, result.newAuditEntry];
+    setAuditLedger(updatedLedger);
+    setItems(result.restoredItems);
+    persistChanges(result.restoredItems, updatedLedger);
+
+    if (result.activeItem) {
+      setActiveDetailItem(result.activeItem);
+    }
+    setFocusedIndex(result.focusedIndex);
+    showNotification(result.toastMessage);
+  }, [undoStack, items, auditLedger, persistChanges, showNotification]);
 
   // Reset active client demo state
   const handleResetClientData = useCallback(() => {
@@ -269,6 +392,7 @@ export const App: React.FC = () => {
     setItems(fresh.items);
     setAuditLedger(fresh.auditLedger);
     setActiveDetailItem(null);
+    setUndoStack([]);
     showNotification(`Reset ${activeClient.name} database to initial state`);
   }, [activeClient.id, activeClient.name, showNotification]);
 
@@ -320,11 +444,24 @@ export const App: React.FC = () => {
       }
 
       const target = e.target as HTMLElement;
-      // Guard against typing in form inputs
+      // Guard against typing in form inputs: preserve native undo inside input/textarea
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
         if (e.key === 'Escape') {
           target.blur();
         }
+        return;
+      }
+
+      const key = e.key.toLowerCase();
+
+      // Flow 16: Session Undo (Ctrl+Z or Cmd+Z without Shift, or 'U' without modifiers)
+      const isUndoShortcut = 
+        ((e.ctrlKey || e.metaKey) && key === 'z' && !e.shiftKey && !e.altKey) ||
+        (key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey);
+
+      if (isUndoShortcut) {
+        e.preventDefault();
+        handleUndo();
         return;
       }
 
@@ -334,8 +471,6 @@ export const App: React.FC = () => {
         setIsFinderModalOpen(true);
         return;
       }
-
-      const key = e.key.toLowerCase();
 
       // Quick Client Switcher: Ctrl+O or Cmd+O
       if ((e.ctrlKey || e.metaKey) && key === 'o') {
@@ -443,7 +578,8 @@ export const App: React.FC = () => {
     editingItem,
     isHelpModalOpen,
     handleApproveItem,
-    handleBatchApproveTiming
+    handleBatchApproveTiming,
+    handleUndo
   ]);
 
   return (

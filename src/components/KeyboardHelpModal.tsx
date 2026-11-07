@@ -67,6 +67,14 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({
             <kbd className="text-[#3ddc97] font-medium">Space</kbd>
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
+            <span className="text-[#8a909c]">Undo last action</span>
+            <kbd className="text-[#3ddc97] font-medium">Ctrl+Z / U</kbd>
+          </div>
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
+            <span className="text-[#8a909c]">Switch client</span>
+            <kbd className="text-[#3ddc97] font-medium">Ctrl+O</kbd>
+          </div>
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Close panel</span>
             <kbd className="text-[#3ddc97] font-medium">Esc</kbd>
           </div>

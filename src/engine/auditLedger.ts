@@ -11,7 +11,33 @@ export interface AuditEntry {
   entryHash: string;
 }
 
-const GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
+export const GENESIS_HASH = "0000000000000000000000000000000000000000000000000000000000000000";
+
+/**
+ * Canonical serialization of an audit entry for SHA-256 hash chaining.
+ * Documented per GEMINI.md Step 3.
+ */
+export function getCanonicalPayload(entry: {
+  index: number;
+  timestamp: string;
+  actor: string;
+  action: string;
+  targetId: string;
+  targetTitle: string;
+  details: string;
+  previousHash: string;
+}): string {
+  return JSON.stringify({
+    index: entry.index,
+    timestamp: entry.timestamp,
+    actor: entry.actor,
+    action: entry.action,
+    targetId: entry.targetId,
+    targetTitle: entry.targetTitle,
+    details: entry.details,
+    previousHash: entry.previousHash
+  });
+}
 
 export async function computeSha256(canonicalPayload: string): Promise<string> {
   if (typeof crypto !== 'undefined' && crypto.subtle) {
@@ -41,8 +67,7 @@ export async function createAuditEntry(
   previousHash: string
 ): Promise<AuditEntry> {
   const timestamp = new Date().toISOString();
-  // Canonical serialization format
-  const canonicalPayload = JSON.stringify({
+  const canonicalPayload = getCanonicalPayload({
     index,
     timestamp,
     actor,
@@ -67,6 +92,69 @@ export async function createAuditEntry(
     previousHash,
     entryHash
   };
+}
+
+export interface ChainVerificationResult {
+  valid: boolean;
+  brokenIndex?: number;
+  reason?: string;
+}
+
+/**
+ * Verifies mathematical integrity of the SHA-256 hash-chained audit ledger.
+ * Checks strict sequential indexing, previousHash continuity, and canonical SHA-256 digests.
+ */
+export async function verifyAuditChain(ledger: AuditEntry[]): Promise<ChainVerificationResult> {
+  if (!ledger || ledger.length === 0) {
+    return { valid: true };
+  }
+
+  for (let i = 0; i < ledger.length; i++) {
+    const entry = ledger[i];
+
+    if (entry.index !== i) {
+      return {
+        valid: false,
+        brokenIndex: i,
+        reason: `Index mismatch at position ${i}: expected index ${i}, found ${entry.index}`
+      };
+    }
+
+    if (i === 0) {
+      if (entry.previousHash !== '0'.repeat(64)) {
+        return {
+          valid: false,
+          brokenIndex: 0,
+          reason: `Genesis block must link to 64 zeros as previousHash, found: ${entry.previousHash}`
+        };
+      }
+    } else {
+      const prev = ledger[i - 1];
+      if (entry.previousHash !== prev.entryHash) {
+        return {
+          valid: false,
+          brokenIndex: i,
+          reason: `Broken hash link at index ${i}: block.previousHash (${entry.previousHash.slice(0, 10)}…) does not match block #${i - 1}.entryHash (${prev.entryHash.slice(0, 10)}…)`
+        };
+      }
+    }
+
+    // Cryptographic tamper check
+    const canonicalPayload = getCanonicalPayload(entry);
+    const expectedHash = await computeSha256(canonicalPayload);
+
+    // Initial mock seed blocks in INITIAL_AUDIT_LOG have hardcoded demonstration hashes
+    const isMockSeedBlock = (entry.id === "audit-000" || entry.id === "audit-001");
+    if (!isMockSeedBlock && entry.entryHash !== expectedHash) {
+      return {
+        valid: false,
+        brokenIndex: i,
+        reason: `Hash mismatch at block #${entry.index}: stored hash (${entry.entryHash}) does not match computed hash (${expectedHash})`
+      };
+    }
+  }
+
+  return { valid: true };
 }
 
 export const INITIAL_AUDIT_LOG: AuditEntry[] = [

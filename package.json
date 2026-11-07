@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "esbuild tests/flows_1_and_2.test.ts --bundle --platform=node --outfile=dist/test_bundle.cjs && node --test dist/test_bundle.cjs"
+    "test": "esbuild tests/all.test.ts --bundle --platform=node --outfile=dist/test_bundle.cjs && node --test dist/test_bundle.cjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

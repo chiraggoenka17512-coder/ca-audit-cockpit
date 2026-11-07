@@ -42,6 +42,13 @@ export const useKeyboardShortcuts = (
       const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
       const keyLower = e.key.toLowerCase();
 
+      // Undo shortcut: Ctrl+Z or Cmd+Z (without Shift/Alt)
+      if ((e.ctrlKey || e.metaKey) && keyLower === 'z' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        handlersRef.current.onUndo?.();
+        return;
+      }
+
       // Omni-search shortcut: Ctrl+K or / (without modifiers)
       if ((e.ctrlKey || e.metaKey) && keyLower === 'k') {
         e.preventDefault();
