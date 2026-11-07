@@ -78,7 +78,11 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({
             <span className="text-[#8a909c]">Switch client</span>
             <kbd className="text-[#3ddc97] font-medium">Ctrl+O</kbd>
           </div>
-          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33] col-span-2">
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
+            <span className="text-[#8a909c]">Import documents</span>
+            <kbd className="text-[#3ddc97] font-medium">Ctrl+I</kbd>
+          </div>
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Close modal / panel</span>
             <kbd className="text-[#3ddc97] font-medium">Esc</kbd>
           </div>

@@ -1,305 +1,559 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, ChangeEvent, DragEvent } from 'react';
 import { ClientProfile } from '../../data/clientDatabases';
-import { UploadCloud, FileSpreadsheet, FileText, CheckCircle2, AlertTriangle, AlertCircle, RefreshCw } from 'lucide-react';
+import { ReviewItem } from '../../data/reviewItems';
+import {
+  UploadCloud,
+  FileSpreadsheet,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  AlertCircle,
+  RefreshCw,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Plus
+} from 'lucide-react';
+import {
+  IngestionFileType,
+  IngestionFileItem,
+  classifyFile,
+  processIngestionFile,
+  SAMPLE_INGESTION_FILES
+} from '../../engine/ingestion';
 
 interface ImportViewProps {
   client: ClientProfile;
-  onImportComplete?: (summary: string) => void;
+  onIngestVouchers?: (vouchers: ReviewItem[], fileName: string) => void;
+  onNavigateToExceptions?: () => void;
 }
 
-export type FileType = 'Purchase Register' | 'GSTR-2B JSON' | 'Bank Statement' | 'Invoice PDF' | 'Unknown';
-
-export interface IngestedFile {
-  id: string;
-  name: string;
-  size: string;
-  detectedType: FileType;
-  selectedType: FileType;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'NEEDS_ATTENTION' | 'FAILED';
-  progress: number;
-  rowsRead?: number;
-  rowsRejected?: number;
-  unmappedHeaders?: string[];
-  failureReason?: string;
-}
-
-const INITIAL_FILES: IngestedFile[] = [
-  {
-    id: "f-1",
-    name: "Sept24_Purchase_Register.xlsx",
-    size: "1.4 MB",
-    detectedType: "Purchase Register",
-    selectedType: "Purchase Register",
-    status: "COMPLETED",
-    progress: 100,
-    rowsRead: 524,
-    rowsRejected: 2,
-    unmappedHeaders: ["Internal_Project_Tag", "Approver_Notes"]
-  },
-  {
-    id: "f-2",
-    name: "GSTR2B_27AABCA1234F1Z5_092024.json",
-    size: "840 KB",
-    detectedType: "GSTR-2B JSON",
-    selectedType: "GSTR-2B JSON",
-    status: "COMPLETED",
-    progress: 100,
-    rowsRead: 482,
-    rowsRejected: 0,
-    unmappedHeaders: []
-  },
-  {
-    id: "f-3",
-    name: "HDFC_Current_Account_00492819_Sept2024.csv",
-    size: "320 KB",
-    detectedType: "Bank Statement",
-    selectedType: "Bank Statement",
-    status: "COMPLETED",
-    progress: 100,
-    rowsRead: 114,
-    rowsRejected: 1,
-    unmappedHeaders: ["Reference_Code_3"]
-  },
-  {
-    id: "f-4",
-    name: "Vendor_Tax_Invoice_902_Siemens.pdf",
-    size: "480 KB",
-    detectedType: "Invoice PDF",
-    selectedType: "Invoice PDF",
-    status: "COMPLETED",
-    progress: 100,
-    rowsRead: 1,
-    rowsRejected: 0,
-    unmappedHeaders: []
-  },
-  {
-    id: "f-5",
-    name: "Encrypted_Contract_2024.pdf",
-    size: "2.1 MB",
-    detectedType: "Unknown",
-    selectedType: "Unknown",
-    status: "NEEDS_ATTENTION",
-    progress: 0,
-    failureReason: "Password-protected PDF stream. Decryption key required to parse table data."
-  }
-];
-
-export const ImportView: React.FC<ImportViewProps> = ({ client, onImportComplete }) => {
-  const [files, setFiles] = useState<IngestedFile[]>(INITIAL_FILES);
+export const ImportView: React.FC<ImportViewProps> = ({
+  client,
+  onIngestVouchers,
+  onNavigateToExceptions
+}) => {
+  const [files, setFiles] = useState<IngestionFileItem[]>(() => [...SAMPLE_INGESTION_FILES]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [expandedFileId, setExpandedFileId] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleTypeChange = (id: string, newType: FileType) => {
-    setFiles(prev => prev.map(f => {
-      if (f.id === id) {
-        return {
-          ...f,
-          selectedType: newType,
-          status: newType === 'Unknown' ? 'NEEDS_ATTENTION' : 'PENDING',
-          failureReason: undefined
-        };
-      }
-      return f;
-    }));
-  };
-
-  const handleAddSampleBatch = () => {
-    const newFile: IngestedFile = {
-      id: `f-${Date.now()}`,
-      name: `October_Advance_Register_Batch_${Math.floor(Math.random() * 100)}.xlsx`,
-      size: "890 KB",
-      detectedType: "Purchase Register",
-      selectedType: "Purchase Register",
-      status: "PENDING",
-      progress: 0
-    };
-    setFiles(prev => [newFile, ...prev]);
-  };
-
-  const handleRunProcessing = () => {
-    setIsProcessing(true);
-    let step = 0;
-    const interval = setInterval(() => {
-      step += 25;
-      setFiles(prev => prev.map(f => {
-        if (f.status === 'PENDING') {
-          if (step >= 100) {
-            return {
-              ...f,
-              status: 'COMPLETED',
-              progress: 100,
-              rowsRead: 48,
-              rowsRejected: 0,
-              unmappedHeaders: []
-            };
-          }
-          return { ...f, status: 'PROCESSING', progress: step };
+  // Type Override Handler
+  const handleTypeChange = (id: string, newType: IngestionFileType) => {
+    setFiles(prev =>
+      prev.map(f => {
+        if (f.id === id) {
+          return {
+            ...f,
+            selectedType: newType,
+            status: newType === 'Unknown' ? 'NEEDS_ATTENTION' : 'PENDING',
+            failureReason: newType === 'Unknown' ? 'Unmapped file format. Please assign file type.' : undefined,
+            progress: 0,
+            rowsRead: undefined,
+            vouchersIngested: undefined,
+            rowsRejected: undefined,
+            rejectedDetails: undefined,
+            unmappedHeaders: undefined,
+            parsedVouchers: undefined
+          };
         }
         return f;
-      }));
-
-      if (step >= 100) {
-        clearInterval(interval);
-        setIsProcessing(false);
-        if (onImportComplete) {
-          onImportComplete(`Processed document batch into ${client.name} workspace.`);
-        }
-      }
-    }, 400);
+      })
+    );
   };
 
+  // Remove individual file
+  const handleRemoveFile = (id: string) => {
+    setFiles(prev => prev.filter(f => f.id !== id));
+    if (expandedFileId === id) setExpandedFileId(null);
+  };
+
+  // Clear all files
+  const handleClearAll = () => {
+    setFiles([]);
+    setExpandedFileId(null);
+  };
+
+  // Add sample files
+  const handleAddSampleBatch = () => {
+    setFiles(prev => {
+      const existingIds = new Set(prev.map(f => f.id));
+      const freshSamples = SAMPLE_INGESTION_FILES.filter(s => !existingIds.has(s.id));
+      if (freshSamples.length > 0) {
+        return [...prev, ...freshSamples];
+      }
+      // Generate a new random synthetic copy
+      const suffix = Math.floor(Math.random() * 900 + 100);
+      const cloned: IngestionFileItem = {
+        ...SAMPLE_INGESTION_FILES[0],
+        id: `sample-dup-${Date.now()}`,
+        name: `Purchase_Register_Batch_${suffix}.csv`,
+        status: 'PENDING',
+        progress: 0
+      };
+      return [...prev, cloned];
+    });
+  };
+
+  // Handle native file input selection
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files;
+    if (!selectedFiles || selectedFiles.length === 0) return;
+
+    Array.from(selectedFiles).forEach(file => {
+      const reader = new FileReader();
+      const detected = classifyFile(file.name);
+      const isText = file.name.endsWith('.csv') || file.name.endsWith('.json') || file.name.endsWith('.txt');
+
+      if (isText) {
+        reader.onload = event => {
+          const content = event.target?.result as string;
+          const refinedType = classifyFile(file.name, content.slice(0, 500));
+          const newFileItem: IngestionFileItem = {
+            id: `f-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            name: file.name,
+            sizeBytes: file.size,
+            sizeFormatted: formatFileSize(file.size),
+            detectedType: refinedType,
+            selectedType: refinedType,
+            status: refinedType === 'Unknown' ? 'NEEDS_ATTENTION' : 'PENDING',
+            progress: 0,
+            rawText: content,
+            failureReason: refinedType === 'Unknown' ? 'Unmapped file format. Please assign file type.' : undefined
+          };
+          setFiles(prev => [newFileItem, ...prev]);
+        };
+        reader.readAsText(file);
+      } else {
+        const newFileItem: IngestionFileItem = {
+          id: `f-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          name: file.name,
+          sizeBytes: file.size,
+          sizeFormatted: formatFileSize(file.size),
+          detectedType: detected,
+          selectedType: detected,
+          status: detected === 'Unknown' ? 'NEEDS_ATTENTION' : 'PENDING',
+          progress: 0,
+          failureReason: detected === 'Unknown' ? 'Unmapped file format. Please assign file type.' : undefined
+        };
+        setFiles(prev => [newFileItem, ...prev]);
+      }
+    });
+
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+
+    const droppedFiles = e.dataTransfer.files;
+    if (!droppedFiles || droppedFiles.length === 0) return;
+
+    Array.from(droppedFiles).forEach(file => {
+      const reader = new FileReader();
+      const detected = classifyFile(file.name);
+      const isText = file.name.endsWith('.csv') || file.name.endsWith('.json') || file.name.endsWith('.txt');
+
+      if (isText) {
+        reader.onload = event => {
+          const content = event.target?.result as string;
+          const refinedType = classifyFile(file.name, content.slice(0, 500));
+          const newFileItem: IngestionFileItem = {
+            id: `f-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            name: file.name,
+            sizeBytes: file.size,
+            sizeFormatted: formatFileSize(file.size),
+            detectedType: refinedType,
+            selectedType: refinedType,
+            status: refinedType === 'Unknown' ? 'NEEDS_ATTENTION' : 'PENDING',
+            progress: 0,
+            rawText: content,
+            failureReason: refinedType === 'Unknown' ? 'Unmapped file format. Please assign file type.' : undefined
+          };
+          setFiles(prev => [newFileItem, ...prev]);
+        };
+        reader.readAsText(file);
+      } else {
+        const newFileItem: IngestionFileItem = {
+          id: `f-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          name: file.name,
+          sizeBytes: file.size,
+          sizeFormatted: formatFileSize(file.size),
+          detectedType: detected,
+          selectedType: detected,
+          status: detected === 'Unknown' ? 'NEEDS_ATTENTION' : 'PENDING',
+          progress: 0,
+          failureReason: detected === 'Unknown' ? 'Unmapped file format. Please assign file type.' : undefined
+        };
+        setFiles(prev => [newFileItem, ...prev]);
+      }
+    });
+  };
+
+  // Run Ingestion Processing
+  const handleRunProcessing = () => {
+    setIsProcessing(true);
+
+    const pendingOrAttention = files.filter(f => f.status === 'PENDING' || f.status === 'NEEDS_ATTENTION');
+    if (pendingOrAttention.length === 0) {
+      setIsProcessing(false);
+      return;
+    }
+
+    // Process each file through the deterministic ingestion engine
+    const updatedFiles = files.map(file => {
+      if (file.status === 'PENDING' || (file.status === 'NEEDS_ATTENTION' && file.selectedType !== 'Unknown')) {
+        const processed = processIngestionFile(file);
+
+        if (processed.parsedVouchers && processed.parsedVouchers.length > 0 && onIngestVouchers) {
+          onIngestVouchers(processed.parsedVouchers, processed.name);
+        }
+        return processed;
+      }
+      return file;
+    });
+
+    setFiles(updatedFiles);
+    setIsProcessing(false);
+  };
+
+  // Helper file size formatter
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   const completedCount = files.filter(f => f.status === 'COMPLETED').length;
-  const needsAttentionCount = files.filter(f => f.status === 'NEEDS_ATTENTION' || f.status === 'FAILED').length;
+  const needsAttentionCount = files.filter(f => f.status === 'NEEDS_ATTENTION').length;
+  const failedCount = files.filter(f => f.status === 'FAILED').length;
+  const pendingCount = files.filter(f => f.status === 'PENDING').length;
+
+  const totalRowsRead = files.reduce((acc, f) => acc + (f.rowsRead || 0), 0);
+  const totalVouchersIngested = files.reduce((acc, f) => acc + (f.vouchersIngested || 0), 0);
+  const totalRowsRejected = files.reduce((acc, f) => acc + (f.rowsRejected || 0), 0);
 
   return (
     <div className="cockpit-wrap space-y-6">
+      {/* Hidden native file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={handleFileInputChange}
+        className="hidden"
+        accept=".csv,.json,.xlsx,.pdf,.txt"
+      />
+
+      {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-[#262a33]">
         <div>
-          <h1 className="cockpit-h1">Import documents</h1>
-          <p className="cockpit-sub mb-0">
-            Calamine &amp; JSON in-memory ingestion for {client.name}. 100% on-device execution.
+          <h1 className="text-xl font-semibold text-[#e8eaf0]">Import documents</h1>
+          <p className="text-xs text-[#8a909c] mt-1">
+            Deterministic multi-format parser for {client.name}. Integer paise arithmetic with zero network telemetry.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          {files.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClearAll}
+              className="px-3 py-1.5 rounded bg-[#171a21] border border-[#262a33] text-xs text-[#8a909c] hover:text-[#e8eaf0] transition"
+            >
+              Clear all
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleAddSampleBatch}
-            className="cockpit-btn text-xs py-2"
+            className="px-3 py-1.5 rounded bg-[#171a21] border border-[#262a33] text-xs text-[#e8eaf0] hover:border-[#3a404c] transition flex items-center gap-1.5"
           >
-            + Add files
+            <Plus className="w-3.5 h-3.5" />
+            <span>Sample files</span>
           </button>
+
           <button
             type="button"
-            disabled={isProcessing}
+            disabled={isProcessing || pendingCount === 0}
             onClick={handleRunProcessing}
-            className="cockpit-btn primary text-xs py-2"
+            className={`px-3.5 py-1.5 rounded text-xs font-medium transition flex items-center gap-1.5 ${
+              pendingCount > 0 && !isProcessing
+                ? 'bg-[#3ddc97] text-[#0f1115] hover:bg-[#34c787]'
+                : 'bg-[#1e222b] text-[#8a909c] cursor-not-allowed border border-[#262a33]'
+            }`}
           >
-            {isProcessing ? 'Parsing files…' : 'Process batch'}
+            {isProcessing ? (
+              <>
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <span>Parsing files...</span>
+              </>
+            ) : (
+              <span>Start ingestion ({pendingCount})</span>
+            )}
           </button>
         </div>
       </div>
 
-      {/* Drag & Drop Simulation Dropzone: Flat, solid, no gradients */}
-      <div className="border border-dashed border-[#363b47] hover:border-[#3ddc97] rounded-lg p-8 text-center bg-[#171a21] transition cursor-pointer">
-        <UploadCloud className="w-10 h-10 mx-auto text-[#8a909c] mb-3" />
+      {/* Drag & Drop Zone (Flat, solid, Zero AI Slop: no glowing neon gradients) */}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+        className={`border border-dashed rounded-lg p-7 text-center transition cursor-pointer ${
+          isDragOver
+            ? 'border-[#3ddc97] bg-[#1a221f]'
+            : 'border-[#262a33] hover:border-[#3ddc97] bg-[#161920]'
+        }`}
+      >
+        <UploadCloud className="w-9 h-9 mx-auto text-[#8a909c] mb-2.5" />
         <h3 className="text-sm font-semibold text-[#e8eaf0] mb-1">
-          Drag and drop Excel books, GSTR-2B JSON, or bank statements here
+          Drop Indian financial documents here or click to browse
         </h3>
-        <p className="text-xs text-[#8a909c] max-w-md mx-auto">
-          Supports .xlsx (Calamine native), .json (official GSTN GSTR-2B schema), .csv, and scanned invoice PDFs.
+        <p className="text-xs text-[#8a909c] max-w-lg mx-auto">
+          Auto-classifies Purchase Registers (.xlsx / .csv), GSTR-2B JSON (official GSTN schema), Bank Statements (HDFC Current Account), and Tax Invoices.
         </p>
       </div>
 
-      {/* Summary Status Strip */}
-      <div className="flex items-center justify-between text-xs text-[#8a909c] pt-2">
-        <span>{files.length} files in staging area</span>
-        <div className="flex items-center gap-4">
-          <span className="text-[#3ddc97]">{completedCount} parsed successfully</span>
-          {needsAttentionCount > 0 && (
-            <span className="text-[#f5b754]">{needsAttentionCount} needs attention</span>
-          )}
+      {/* Summary KPI Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="p-3.5 rounded-lg bg-[#161920] border border-[#262a33]">
+          <div className="text-xs text-[#8a909c] mb-1">Staging files</div>
+          <div className="text-xl font-semibold text-[#e8eaf0] tabular-nums">{files.length}</div>
+          <div className="text-[11px] text-[#8a909c] mt-0.5">{pendingCount} pending parse</div>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-[#161920] border border-[#262a33]">
+          <div className="text-xs text-[#8a909c] mb-1">Rows read</div>
+          <div className="text-xl font-semibold text-[#e8eaf0] tabular-nums">{totalRowsRead}</div>
+          <div className="text-[11px] text-[#3ddc97] mt-0.5">{totalVouchersIngested} vouchers valid</div>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-[#161920] border border-[#262a33]">
+          <div className="text-xs text-[#8a909c] mb-1">Rows rejected</div>
+          <div className={`text-xl font-semibold tabular-nums ${totalRowsRejected > 0 ? 'text-[#f5b754]' : 'text-[#e8eaf0]'}`}>
+            {totalRowsRejected}
+          </div>
+          <div className="text-[11px] text-[#8a909c] mt-0.5">Strict typed errors</div>
+        </div>
+
+        <div className="p-3.5 rounded-lg bg-[#161920] border border-[#262a33]">
+          <div className="text-xs text-[#8a909c] mb-1">Needs attention</div>
+          <div className={`text-xl font-semibold tabular-nums ${needsAttentionCount > 0 ? 'text-[#f5b754]' : 'text-[#3ddc97]'}`}>
+            {needsAttentionCount + failedCount}
+          </div>
+          <div className="text-[11px] text-[#8a909c] mt-0.5">No silent drops</div>
         </div>
       </div>
 
-      {/* Ingestion Files List */}
-      <div className="border-t border-[#262a33] divide-y divide-[#262a33]">
-        {files.map((file) => (
-          <div key={file.id} className="py-4 space-y-2">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3 min-w-0">
-                {file.name.endsWith('.xlsx') || file.name.endsWith('.csv') ? (
-                  <FileSpreadsheet className="w-5 h-5 text-[#3ddc97] shrink-0 mt-0.5" />
-                ) : (
-                  <FileText className="w-5 h-5 text-[#8a909c] shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <div className="text-sm font-medium text-[#e8eaf0] truncate">
-                    {file.name}
-                  </div>
-                  <div className="text-xs text-[#8a909c] mt-0.5 space-x-2">
-                    <span>{file.size}</span>
-                    <span>•</span>
-                    <span>Detected as: {file.detectedType}</span>
-                  </div>
-                </div>
-              </div>
+      {/* Ingestion Table */}
+      <div className="border border-[#262a33] rounded-lg overflow-hidden bg-[#12151b]">
+        <div className="px-4 py-3 border-b border-[#262a33] bg-[#161920] flex items-center justify-between">
+          <span className="text-xs font-medium text-[#e8eaf0]">Document staging table</span>
+          <span className="text-xs text-[#8a909c] tabular-nums">{files.length} files in queue</span>
+        </div>
 
-              {/* Type Override Dropdown before processing */}
-              <div className="flex items-center gap-3 shrink-0">
-                <select
-                  value={file.selectedType}
-                  onChange={(e) => handleTypeChange(file.id, e.target.value as FileType)}
-                  className="bg-[#0f1115] border border-[#262a33] text-xs text-[#e8eaf0] rounded px-2.5 py-1.5 focus:outline-none focus:border-[#3ddc97]"
-                >
-                  <option value="Purchase Register">Purchase Register</option>
-                  <option value="GSTR-2B JSON">GSTR-2B JSON</option>
-                  <option value="Bank Statement">Bank Statement</option>
-                  <option value="Invoice PDF">Invoice PDF</option>
-                  <option value="Unknown">Unknown (Needs Review)</option>
-                </select>
-
-                <div className="w-24 text-right">
-                  {file.status === 'COMPLETED' && (
-                    <span className="text-xs text-[#3ddc97] flex items-center gap-1 justify-end">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>Parsed</span>
-                    </span>
-                  )}
-                  {file.status === 'PROCESSING' && (
-                    <span className="text-xs text-[#f5b754] flex items-center gap-1 justify-end">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>{file.progress}%</span>
-                    </span>
-                  )}
-                  {file.status === 'NEEDS_ATTENTION' && (
-                    <span className="text-xs text-[#f5b754] flex items-center gap-1 justify-end">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      <span>Attention</span>
-                    </span>
-                  )}
-                  {file.status === 'FAILED' && (
-                    <span className="text-xs text-[#ff6b6b] flex items-center gap-1 justify-end">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      <span>Failed</span>
-                    </span>
-                  )}
-                  {file.status === 'PENDING' && (
-                    <span className="text-xs text-[#8a909c]">Queued</span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Results breakdown per file */}
-            {file.status === 'COMPLETED' && (
-              <div className="pl-8 text-xs text-[#8a909c] flex flex-wrap items-center gap-4">
-                <span>
-                  Rows read: <strong className="text-[#e8eaf0] tabular-nums">{file.rowsRead}</strong>
-                </span>
-                <span>•</span>
-                <span>
-                  Rows rejected: <strong className={`tabular-nums ${file.rowsRejected ? 'text-[#f5b754]' : 'text-[#e8eaf0]'}`}>{file.rowsRejected || 0}</strong>
-                </span>
-                {file.unmappedHeaders && file.unmappedHeaders.length > 0 && (
-                  <>
-                    <span>•</span>
-                    <span className="text-[#f5b754]">
-                      Unmapped headers: {file.unmappedHeaders.join(', ')}
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Needs Attention Failure message */}
-            {file.status === 'NEEDS_ATTENTION' && file.failureReason && (
-              <div className="pl-8 text-xs text-[#f5b754]">
-                {file.failureReason}
-              </div>
-            )}
+        {files.length === 0 ? (
+          <div className="py-12 text-center text-xs text-[#8a909c]">
+            No documents in staging area. Drop files or click Sample files above.
           </div>
-        ))}
+        ) : (
+          <div className="divide-y divide-[#262a33]">
+            {files.map(file => {
+              const isExpanded = expandedFileId === file.id;
+              const hasRejected = file.rejectedDetails && file.rejectedDetails.length > 0;
+              const hasUnmapped = file.unmappedHeaders && file.unmappedHeaders.length > 0;
+
+              return (
+                <div key={file.id} className="p-4 space-y-3 hover:bg-[#161920]/60 transition">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    {/* Left: Icon, Name, and Metadata */}
+                    <div className="flex items-start gap-3 min-w-0">
+                      {file.name.endsWith('.csv') || file.name.endsWith('.xlsx') ? (
+                        <FileSpreadsheet className="w-5 h-5 text-[#3ddc97] shrink-0 mt-0.5" />
+                      ) : (
+                        <FileText className="w-5 h-5 text-[#8a909c] shrink-0 mt-0.5" />
+                      )}
+
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-[#e8eaf0] truncate">{file.name}</div>
+                        <div className="text-xs text-[#8a909c] mt-0.5 flex items-center gap-2">
+                          <span className="tabular-nums">{file.sizeFormatted}</span>
+                          <span>·</span>
+                          <span>Detected: {file.detectedType}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Type Override dropdown, Status, and Actions */}
+                    <div className="flex items-center gap-3 shrink-0 self-end md:self-auto">
+                      {/* Dropdown to override detected type */}
+                      <select
+                        value={file.selectedType}
+                        onChange={e => handleTypeChange(file.id, e.target.value as IngestionFileType)}
+                        className="bg-[#0f1115] border border-[#262a33] text-xs text-[#e8eaf0] rounded px-2.5 py-1.5 focus:outline-none focus:border-[#3ddc97]"
+                      >
+                        <option value="Purchase Register">Purchase Register</option>
+                        <option value="GSTR-2B JSON">GSTR-2B JSON</option>
+                        <option value="Bank Statement">Bank Statement</option>
+                        <option value="Tax Invoices">Tax Invoices</option>
+                        <option value="Unknown">Unknown (Unmapped)</option>
+                      </select>
+
+                      {/* Status indicator */}
+                      <div className="w-28 text-right">
+                        {file.status === 'COMPLETED' && (
+                          <span className="text-xs text-[#3ddc97] flex items-center gap-1 justify-end">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Parsed</span>
+                          </span>
+                        )}
+                        {file.status === 'PROCESSING' && (
+                          <span className="text-xs text-[#f5b754] flex items-center gap-1 justify-end">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Processing</span>
+                          </span>
+                        )}
+                        {file.status === 'NEEDS_ATTENTION' && (
+                          <span className="text-xs text-[#f5b754] flex items-center gap-1 justify-end">
+                            <AlertTriangle className="w-3.5 h-3.5" />
+                            <span>Attention</span>
+                          </span>
+                        )}
+                        {file.status === 'FAILED' && (
+                          <span className="text-xs text-[#ff6b6b] flex items-center gap-1 justify-end">
+                            <AlertCircle className="w-3.5 h-3.5" />
+                            <span>Failed</span>
+                          </span>
+                        )}
+                        {file.status === 'PENDING' && (
+                          <span className="text-xs text-[#8a909c]">Queued</span>
+                        )}
+                      </div>
+
+                      {/* Remove button */}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveFile(file.id)}
+                        title="Remove file from staging"
+                        className="p-1 text-[#8a909c] hover:text-[#ff6b6b] rounded transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Summary row stats when completed or attention */}
+                  {file.status !== 'PENDING' && file.rowsRead !== undefined && (
+                    <div className="flex flex-wrap items-center justify-between text-xs text-[#8a909c] pt-2 border-t border-[#1e222b]">
+                      <div className="flex items-center gap-4">
+                        <span>
+                          Rows read: <strong className="text-[#e8eaf0] tabular-nums">{file.rowsRead}</strong>
+                        </span>
+                        <span>·</span>
+                        <span>
+                          Valid vouchers: <strong className="text-[#3ddc97] tabular-nums">{file.vouchersIngested || 0}</strong>
+                        </span>
+                        <span>·</span>
+                        <span>
+                          Rows rejected:{' '}
+                          <strong className={`tabular-nums ${file.rowsRejected ? 'text-[#f5b754]' : 'text-[#e8eaf0]'}`}>
+                            {file.rowsRejected || 0}
+                          </strong>
+                        </span>
+                        {hasUnmapped && (
+                          <>
+                            <span>·</span>
+                            <span className="text-[#f5b754]">
+                              Unmapped columns: {file.unmappedHeaders?.join(', ')}
+                            </span>
+                          </>
+                        )}
+                      </div>
+
+                      {hasRejected && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedFileId(isExpanded ? null : file.id)}
+                          className="text-xs text-[#3ddc97] hover:underline flex items-center gap-1"
+                        >
+                          <span>{isExpanded ? 'Hide rejected details' : 'View rejected rows'}</span>
+                          {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Failure / Attention notice */}
+                  {file.failureReason && (
+                    <div className="p-2.5 rounded bg-[#1f1914] border border-[#3d2b1f] text-xs text-[#f5b754] flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>{file.failureReason}</span>
+                    </div>
+                  )}
+
+                  {/* Expandable Rejected Rows Detail */}
+                  {isExpanded && hasRejected && (
+                    <div className="mt-2 p-3 rounded bg-[#0f1115] border border-[#262a33] space-y-2 text-xs">
+                      <div className="font-medium text-[#e8eaf0]">
+                        Rejected rows ({file.rejectedDetails?.length}) — No silent drops
+                      </div>
+                      <div className="divide-y divide-[#1e222b]">
+                        {file.rejectedDetails?.map((detail, idx) => (
+                          <div key={idx} className="py-1.5 flex items-start justify-between gap-3">
+                            <span className="text-[#8a909c] tabular-nums shrink-0">Row {detail.rowNumber}</span>
+                            <span className="text-[#e8eaf0] font-mono text-[11px] shrink-0">[{detail.field}]</span>
+                            <span className="text-[#f5b754] flex-1">{detail.reason}</span>
+                            {detail.rawValue && (
+                              <span className="text-[#8a909c] text-[11px] truncate max-w-[150px]">
+                                Raw: &apos;{detail.rawValue}&apos;
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      {/* Done notification and CTA to Review Queue */}
+      {completedCount > 0 && onNavigateToExceptions && (
+        <div className="p-4 rounded-lg bg-[#161920] border border-[#262a33] flex items-center justify-between">
+          <div className="text-xs">
+            <span className="text-[#e8eaf0] font-medium">Ingestion active:</span>{' '}
+            <span className="text-[#8a909c]">
+              {totalVouchersIngested} vouchers verified with integer paise and loaded into {client.name} review queue.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onNavigateToExceptions}
+            className="px-3 py-1.5 rounded bg-[#3ddc97] text-[#0f1115] text-xs font-medium hover:bg-[#34c787] transition shrink-0"
+          >
+            Review vouchers →
+          </button>
+        </div>
+      )}
     </div>
   );
 };
