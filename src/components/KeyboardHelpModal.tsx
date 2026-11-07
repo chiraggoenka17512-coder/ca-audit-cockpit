@@ -44,7 +44,7 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Open review</span>
-            <kbd className="text-[#3ddc97] font-medium">Enter / R</kbd>
+            <kbd className="text-[#3ddc97] font-medium">Enter</kbd>
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Next item</span>
@@ -59,11 +59,15 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({
             <kbd className="text-[#3ddc97] font-medium">A</kbd>
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
+            <span className="text-[#8a909c]">Reject match</span>
+            <kbd className="text-[#3ddc97] font-medium">R</kbd>
+          </div>
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Edit ledger</span>
             <kbd className="text-[#3ddc97] font-medium">E</kbd>
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
-            <span className="text-[#8a909c]">Batch timing</span>
+            <span className="text-[#8a909c]">Batch approve</span>
             <kbd className="text-[#3ddc97] font-medium">Space</kbd>
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
@@ -74,8 +78,8 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({
             <span className="text-[#8a909c]">Switch client</span>
             <kbd className="text-[#3ddc97] font-medium">Ctrl+O</kbd>
           </div>
-          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
-            <span className="text-[#8a909c]">Close panel</span>
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33] col-span-2">
+            <span className="text-[#8a909c]">Close modal / panel</span>
             <kbd className="text-[#3ddc97] font-medium">Esc</kbd>
           </div>
         </div>
