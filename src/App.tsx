@@ -406,6 +406,13 @@ export const App: React.FC = () => {
         return;
       }
 
+      // Quick Client Switcher: Global Ctrl+O / Cmd+O from anywhere
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        setIsClientModalOpen(prev => !prev);
+        return;
+      }
+
       // 2. Modals handle their own Esc
       if (isFinderModalOpen) {
         if (e.key === 'Escape') {
@@ -428,9 +435,15 @@ export const App: React.FC = () => {
         return;
       }
 
-      if (isClientModalOpen || editingItem) {
+      if (isClientModalOpen) {
         if (e.key === 'Escape') {
           setIsClientModalOpen(false);
+        }
+        return;
+      }
+
+      if (editingItem) {
+        if (e.key === 'Escape') {
           setEditingItem(null);
         }
         return;
@@ -469,13 +482,6 @@ export const App: React.FC = () => {
       if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setIsFinderModalOpen(true);
-        return;
-      }
-
-      // Quick Client Switcher: Ctrl+O or Cmd+O
-      if ((e.ctrlKey || e.metaKey) && key === 'o') {
-        e.preventDefault();
-        setIsClientModalOpen(true);
         return;
       }
 

@@ -20,7 +20,7 @@ export const ReviewList: React.FC<ReviewListProps> = ({
   if (items.length === 0) {
     return (
       <div className="cockpit-wrap text-center py-20">
-        <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-[#3ddc97]/10 border border-[#3ddc97]/30 flex items-center justify-center text-[#3ddc97]">
+        <div className="w-12 h-12 mx-auto mb-4 rounded-md bg-[#3ddc97]/10 border border-[#3ddc97]/30 flex items-center justify-center text-[#3ddc97]">
           <CheckCircle2 className="w-6 h-6" />
         </div>
         <h2 className="text-xl font-semibold text-[#e8eaf0] mb-2">All items reviewed!</h2>
