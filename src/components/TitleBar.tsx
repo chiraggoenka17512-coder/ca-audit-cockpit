@@ -1,11 +1,12 @@
 import React from 'react';
-import { WifiOff, Lock, Building2, ChevronDown, Plus, RefreshCw } from 'lucide-react';
+import { WifiOff, Lock, Building2, ChevronDown, Plus, RefreshCw, UploadCloud } from 'lucide-react';
 import { ClientProfile } from '../data/clientDatabases';
 
 interface TitleBarProps {
   activeClient: ClientProfile;
   onOpenClientSwitcher: () => void;
   onOpenNewClientModal: () => void;
+  onOpenImportModal?: () => void;
   onResetClientData?: () => void;
 }
 
@@ -13,6 +14,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   activeClient,
   onOpenClientSwitcher,
   onOpenNewClientModal,
+  onOpenImportModal,
   onResetClientData
 }) => {
   return (
@@ -83,6 +85,19 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           <Lock className="w-3.5 h-3.5 text-[#f5b754]" />
           <span>AES-GCM-256</span>
         </div>
+
+        {/* Import Documents Button */}
+        {onOpenImportModal && (
+          <button
+            type="button"
+            onClick={onOpenImportModal}
+            title="Import documents (Excel, CSV, GSTR-2B JSON)"
+            className="cockpit-btn flex items-center gap-1.5 py-1 px-2.5 text-xs text-[#3ddc97] hover:border-[#3ddc97]"
+          >
+            <UploadCloud className="w-3.5 h-3.5" />
+            <span>Import</span>
+          </button>
+        )}
 
         {/* New Client Button */}
         <button

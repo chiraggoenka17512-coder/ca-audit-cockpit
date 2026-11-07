@@ -15,6 +15,7 @@ import { ComposerInput } from './components/ComposerInput';
 import { ReconciliationView } from './components/views/ReconciliationView';
 import { DeadlinesView } from './components/views/DeadlinesView';
 import { AuditTrailView } from './components/views/AuditTrailView';
+import { ImportView } from './components/views/ImportView';
 import { TitleBar } from './components/TitleBar';
 import { ClientSwitcherModal } from './components/ClientSwitcherModal';
 import { NewClientModal } from './components/NewClientModal';
@@ -22,6 +23,7 @@ import { SaveOrDiscardModal } from './components/SaveOrDiscardModal';
 import { EditModal } from './components/EditModal';
 import { KeyboardHelpModal } from './components/KeyboardHelpModal';
 import { InvoiceFinderModal } from './components/InvoiceFinderModal';
+import { ImportModal } from './components/ImportModal';
 import { AuditEntry, createAuditEntry } from './engine/auditLedger';
 import { 
   UndoableAction, 
@@ -33,7 +35,7 @@ import {
   executeUndo 
 } from './engine/sessionUndo';
 
-type NavSection = 'home' | 'exceptions' | 'reconciliation' | 'deadlines' | 'audit';
+type NavSection = 'home' | 'exceptions' | 'reconciliation' | 'deadlines' | 'audit' | 'import';
 
 export const App: React.FC = () => {
   // Stored Client Workspaces
@@ -62,6 +64,7 @@ export const App: React.FC = () => {
   const [isNewClientModalOpen, setIsNewClientModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isFinderModalOpen, setIsFinderModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // In-flight edit protection
   const [isSaveOrDiscardOpen, setIsSaveOrDiscardOpen] = useState(false);
@@ -163,6 +166,40 @@ export const App: React.FC = () => {
     setEditingItem(null);
     executeClientSwitch(target);
   }, [pendingSwitchClient, executeClientSwitch]);
+
+  // Flow 3: Ingest vouchers from parsed files into active client review items
+  const handleIngestVouchers = useCallback(async (vouchers: ReviewItem[], fileName: string) => {
+    // Avoid duplicate vouchers by checking booksInvoice + identifier
+    const existingKeys = new Set(items.map(i => `${i.booksInvoice}_${i.identifier}`));
+    const freshVouchers = vouchers.filter(v => !existingKeys.has(`${v.booksInvoice}_${v.identifier}`));
+
+    if (freshVouchers.length === 0) {
+      showNotification(`All vouchers from ${fileName} are already present in ${activeClient.name} review queue.`);
+      return;
+    }
+
+    const updatedItems = [...items, ...freshVouchers];
+
+    const lastEntry = auditLedger[auditLedger.length - 1];
+    const prevHash = lastEntry ? lastEntry.entryHash : '0'.repeat(64);
+
+    const newAuditEntry = await createAuditEntry(
+      auditLedger.length,
+      "Chirag (Audit Partner)",
+      "DOCUMENT_INGESTION",
+      `BATCH_${Date.now()}`,
+      fileName,
+      `Ingested ${freshVouchers.length} vouchers from ${fileName}. Verified paise arithmetic.`,
+      prevHash
+    );
+
+    const updatedLedger = [...auditLedger, newAuditEntry];
+    setItems(updatedItems);
+    setAuditLedger(updatedLedger);
+    persistChanges(updatedItems, updatedLedger);
+
+    showNotification(`Ingested ${freshVouchers.length} vouchers from ${fileName} into ${activeClient.name} — Block #${newAuditEntry.index}`);
+  }, [items, auditLedger, activeClient.name, persistChanges, showNotification]);
 
   // First-Time Setup & New Client Creation
   const handleCreateClient = useCallback(async (newClient: ClientProfile, isDraft: boolean) => {
@@ -443,6 +480,13 @@ export const App: React.FC = () => {
         return;
       }
 
+      if (isImportModalOpen) {
+        if (e.key === 'Escape') {
+          setIsImportModalOpen(false);
+        }
+        return;
+      }
+
       const target = e.target as HTMLElement;
       // Guard against typing in form inputs: preserve native undo inside input/textarea
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
@@ -476,6 +520,13 @@ export const App: React.FC = () => {
       if ((e.ctrlKey || e.metaKey) && key === 'o') {
         e.preventDefault();
         setIsClientModalOpen(true);
+        return;
+      }
+
+      // Import Documents Shortcut: Ctrl+I or Cmd+I
+      if ((e.ctrlKey || e.metaKey) && key === 'i') {
+        e.preventDefault();
+        setIsImportModalOpen(prev => !prev);
         return;
       }
 
@@ -577,6 +628,7 @@ export const App: React.FC = () => {
     isFinderModalOpen,
     editingItem,
     isHelpModalOpen,
+    isImportModalOpen,
     handleApproveItem,
     handleBatchApproveTiming,
     handleUndo
@@ -600,6 +652,7 @@ export const App: React.FC = () => {
         activeClient={activeClient}
         onOpenClientSwitcher={() => setIsClientModalOpen(true)}
         onOpenNewClientModal={() => setIsNewClientModalOpen(true)}
+        onOpenImportModal={() => setIsImportModalOpen(true)}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -627,6 +680,14 @@ export const App: React.FC = () => {
             {items.length > 0 && (
               <span className="cockpit-count">{items.length}</span>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveNav('import')}
+            className={`cockpit-nav-item ${activeNav === 'import' ? 'active' : ''}`}
+          >
+            <span>Import documents</span>
           </button>
 
           <button
@@ -711,6 +772,14 @@ export const App: React.FC = () => {
 
             {activeNav === 'reconciliation' && (
               <ReconciliationView client={activeClient} />
+            )}
+
+            {activeNav === 'import' && (
+              <ImportView
+                client={activeClient}
+                onIngestVouchers={handleIngestVouchers}
+                onNavigateToExceptions={() => setActiveNav('exceptions')}
+              />
             )}
 
             {activeNav === 'deadlines' && (
@@ -800,6 +869,18 @@ export const App: React.FC = () => {
       <KeyboardHelpModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
+      />
+
+      {/* Flow 3: Document Ingestion Modal */}
+      <ImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        client={activeClient}
+        onIngestVouchers={handleIngestVouchers}
+        onNavigateToExceptions={() => {
+          setIsImportModalOpen(false);
+          setActiveNav('exceptions');
+        }}
       />
     </div>
   );
