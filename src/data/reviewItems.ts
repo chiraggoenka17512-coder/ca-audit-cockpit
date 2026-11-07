@@ -5,6 +5,15 @@ export interface SourceSnippet {
   box: [number, number, number, number]; // [x, y, width, height]
 }
 
+export interface ExtractedField {
+  id: string;
+  label: string;
+  field: string;
+  ocrValue: string;
+  confidence: number; // 0.0 to 1.0 (fields < 0.85 show amber check)
+  box: [number, number, number, number]; // [x, y, width, height]
+}
+
 export interface ReviewItem {
   id: string;
   title: string;
@@ -26,6 +35,9 @@ export interface ReviewItem {
   ruleEffectiveDate?: string;
   ruleVerified: boolean; // false = UNVERIFIED
   sourceSnippet?: SourceSnippet;
+  extractedFields?: ExtractedField[];
+  agreedFields?: string[];
+  differingFields?: string[];
   assignedLedger?: string;
   learnedFromPreference?: boolean;
 }
@@ -52,12 +64,62 @@ export const INITIAL_REVIEW_ITEMS: ReviewItem[] = [
     ruleEffectiveDate: "01/01/2022 to Present",
     ruleVerified: true,
     assignedLedger: "Courier & Freight Expenses",
+    agreedFields: [
+      "Total Amount: ₹53,100 (Paise exact)",
+      "Invoice Number: INV/2024/891",
+      "Supplier GSTIN: 27AAACB0446L1ZS"
+    ],
+    differingFields: [
+      "Invoice Date: 12/09/2024 (Books) vs 17/09/2024 (GSTR-2B) · 5-day timing delta"
+    ],
     sourceSnippet: {
-      label: "Invoice Amount Box",
+      label: "Total Invoice Value",
       field: "Total Invoice Value",
       ocrValue: "53,100.00",
-      box: [320, 480, 140, 26]
-    }
+      box: [280, 410, 160, 28]
+    },
+    extractedFields: [
+      {
+        id: "f-001-inv",
+        label: "Invoice Number",
+        field: "invoiceNumber",
+        ocrValue: "INV/2024/891",
+        confidence: 0.99,
+        box: [240, 60, 150, 24]
+      },
+      {
+        id: "f-001-date",
+        label: "Invoice Date",
+        field: "invoiceDate",
+        ocrValue: "12/09/2024",
+        confidence: 0.97,
+        box: [240, 92, 110, 22]
+      },
+      {
+        id: "f-001-gstin",
+        label: "Supplier GSTIN",
+        field: "vendorGSTIN",
+        ocrValue: "27AAACB0446L1ZS",
+        confidence: 0.99,
+        box: [40, 60, 170, 24]
+      },
+      {
+        id: "f-001-taxable",
+        label: "Taxable Value",
+        field: "taxableValue",
+        ocrValue: "45,000.00",
+        confidence: 0.98,
+        box: [280, 340, 130, 24]
+      },
+      {
+        id: "f-001-total",
+        label: "Total Invoice Value",
+        field: "totalAmount",
+        ocrValue: "53,100.00",
+        confidence: 0.98,
+        box: [280, 410, 160, 28]
+      }
+    ]
   },
   {
     id: "rev-002",
@@ -79,12 +141,54 @@ export const INITIAL_REVIEW_ITEMS: ReviewItem[] = [
     ruleEffectiveDate: "01/07/2017 to Present",
     ruleVerified: true,
     assignedLedger: "Freight & Transportation Charges",
+    agreedFields: [
+      "Vendor Name: Reliance Transport Services",
+      "Books Recorded Amount: ₹24,500"
+    ],
+    differingFields: [
+      "Missing in GSTR-2B: Transporter filed under Forward Charge without Annexure V",
+      "RCM Status: Unconfirmed · Declaration missing"
+    ],
     sourceSnippet: {
-      label: "Consignment Note #882",
+      label: "Consignment Total",
       field: "Consignment Total",
       ocrValue: "24,500.00",
-      box: [120, 240, 180, 30]
-    }
+      box: [260, 390, 150, 26]
+    },
+    extractedFields: [
+      {
+        id: "f-002-inv",
+        label: "Consignment Note #",
+        field: "invoiceNumber",
+        ocrValue: "BILL/882",
+        confidence: 0.94,
+        box: [240, 58, 120, 24]
+      },
+      {
+        id: "f-002-date",
+        label: "Consignment Date",
+        field: "invoiceDate",
+        ocrValue: "14/09/2024",
+        confidence: 0.91,
+        box: [240, 90, 110, 22]
+      },
+      {
+        id: "f-002-total",
+        label: "Consignment Total",
+        field: "totalAmount",
+        ocrValue: "24,500.00",
+        confidence: 0.78, // Low confidence amber check!
+        box: [260, 390, 150, 26]
+      },
+      {
+        id: "f-002-rcm",
+        label: "RCM Declaration Flag",
+        field: "rcmDeclaration",
+        ocrValue: "NON-AVAILMENT NOT ATTACHED",
+        confidence: 0.65, // Low confidence amber check!
+        box: [40, 210, 240, 26]
+      }
+    ]
   },
   {
     id: "rev-003",
@@ -107,12 +211,55 @@ export const INITIAL_REVIEW_ITEMS: ReviewItem[] = [
     ruleEffectiveDate: "01/07/2017 to Present",
     ruleVerified: true,
     assignedLedger: "Logistics & Cartage",
+    agreedFields: [
+      "Invoice Number: BL/2024/041",
+      "Supplier GSTIN: 27AABCB5521K1Z8",
+      "Invoice Date: 16/09/2024"
+    ],
+    differingFields: [
+      "Tax Rate: 18% in Books (Tax ₹1,357) vs 12% in GSTR-2B (Tax ₹902)",
+      "Gross Total Delta: ₹474 mismatch (Books ₹8,900 vs GSTR-2B ₹8,426)"
+    ],
     sourceSnippet: {
-      label: "Tax Breakdown Table",
+      label: "GST Rate Table",
       field: "GST Rate",
       ocrValue: "18% vs 12%",
-      box: [280, 360, 150, 32]
-    }
+      box: [240, 310, 160, 28]
+    },
+    extractedFields: [
+      {
+        id: "f-003-inv",
+        label: "Invoice Number",
+        field: "invoiceNumber",
+        ocrValue: "BL/2024/041",
+        confidence: 0.98,
+        box: [240, 60, 140, 24]
+      },
+      {
+        id: "f-003-gstin",
+        label: "Supplier GSTIN",
+        field: "vendorGSTIN",
+        ocrValue: "27AABCB5521K1Z8",
+        confidence: 0.99,
+        box: [40, 60, 180, 24]
+      },
+      {
+        id: "f-003-rate",
+        label: "GST Tax Breakdown",
+        field: "taxRate",
+        ocrValue: "18% GST Rate (Tax ₹1,357.00)",
+        confidence: 0.74, // Low confidence amber check!
+        box: [240, 310, 160, 28]
+      },
+      {
+        id: "f-003-total",
+        label: "Invoice Gross Value",
+        field: "totalAmount",
+        ocrValue: "8,900.00",
+        confidence: 0.96,
+        box: [260, 400, 140, 26]
+      }
+    ]
   },
   {
     id: "rev-004",
@@ -128,18 +275,52 @@ export const INITIAL_REVIEW_ITEMS: ReviewItem[] = [
     why: "Payment of ₹12,000 to legal counsel flagged for TDS. Vendor submitted Form 15H for nil TDS deduction. Confirm PAN validity and upload on TRACES before clearing voucher.",
     category: "TDS",
     booksDate: "18/09/2024",
-    confidenceScore: 0.81, // Amber check
+    confidenceScore: 0.81, // Amber check (< 0.85)
     ruleId: "SEC-194J",
     ruleName: "Section 194J & Section 197A Income Tax Act, 1961",
     ruleEffectiveDate: "01/04/2020 to Present",
     ruleVerified: true,
     assignedLedger: "Legal & Professional Fees",
+    agreedFields: [
+      "Payee: Adv. R. Subramanian",
+      "Voucher Gross Amount: ₹12,000"
+    ],
+    differingFields: [
+      "TDS Rate: Nil TDS (Form 15H tendered) vs Statutory 10% under 194J",
+      "Verification Status: TRACES confirmation pending"
+    ],
     sourceSnippet: {
       label: "Declaration Form 15H",
       field: "Nil TDS Certificate",
       ocrValue: "15H-2024-991",
       box: [80, 150, 210, 28]
-    }
+    },
+    extractedFields: [
+      {
+        id: "f-004-inv",
+        label: "Fee Bill Reference",
+        field: "invoiceNumber",
+        ocrValue: "TDS-194J-LEG",
+        confidence: 0.96,
+        box: [240, 60, 140, 24]
+      },
+      {
+        id: "f-004-total",
+        label: "Professional Fee Amount",
+        field: "totalAmount",
+        ocrValue: "12,000.00",
+        confidence: 0.95,
+        box: [260, 390, 140, 26]
+      },
+      {
+        id: "f-004-cert",
+        label: "Form 15H Certificate Number",
+        field: "certificateNumber",
+        ocrValue: "15H-2024-991",
+        confidence: 0.81, // Amber check!
+        box: [80, 150, 210, 28]
+      }
+    ]
   },
   {
     id: "rev-005",
@@ -161,12 +342,46 @@ export const INITIAL_REVIEW_ITEMS: ReviewItem[] = [
     ruleEffectiveDate: "01/01/2022 to Present",
     ruleVerified: true,
     assignedLedger: "Inward Freight Charges",
+    agreedFields: [
+      "Supplier GSTIN: 27AAACR4411P1Z3",
+      "Books Invoice Number: RHH/SEP/104"
+    ],
+    differingFields: [
+      "GSTR-2B Status: Unfiled · Supplier return not found on GST portal",
+      "ITC Availment: Ineligible under Section 16(2)(aa) until vendor files"
+    ],
     sourceSnippet: {
-      label: "Purchase Voucher",
+      label: "Purchase Voucher Total",
       field: "Gross Payable",
       ocrValue: "1,79,200.00",
-      box: [310, 520, 160, 30]
-    }
+      box: [270, 420, 170, 30]
+    },
+    extractedFields: [
+      {
+        id: "f-005-inv",
+        label: "Invoice Number",
+        field: "invoiceNumber",
+        ocrValue: "RHH/SEP/104",
+        confidence: 0.99,
+        box: [240, 60, 150, 24]
+      },
+      {
+        id: "f-005-gstin",
+        label: "Supplier GSTIN",
+        field: "vendorGSTIN",
+        ocrValue: "27AAACR4411P1Z3",
+        confidence: 0.99,
+        box: [40, 60, 180, 24]
+      },
+      {
+        id: "f-005-total",
+        label: "Gross Invoice Value",
+        field: "totalAmount",
+        ocrValue: "1,79,200.00",
+        confidence: 0.99,
+        box: [270, 420, 170, 30]
+      }
+    ]
   },
   {
     id: "rev-006",
@@ -183,17 +398,159 @@ export const INITIAL_REVIEW_ITEMS: ReviewItem[] = [
     category: "CLASSIFICATION",
     booksDate: "25/09/2024",
     filingDate: "25/09/2024",
-    confidenceScore: 0.72, // Amber check
+    confidenceScore: 0.72, // Amber check (< 0.85)
     ruleId: "SEC-194J-TECH",
     ruleName: "Section 194J(1)(b) Fee for Technical Services",
     ruleEffectiveDate: "01/04/2020 to Present",
     ruleVerified: true,
     assignedLedger: "Software Subscriptions",
+    agreedFields: [
+      "Invoice Amount: ₹34,200 (Paise exact)",
+      "Invoice Number: ADBE-IN-90812",
+      "Supplier GSTIN: 07AABCA3311D1ZX"
+    ],
+    differingFields: [
+      "Ledger Classification: First-time vendor · New head mapping required",
+      "TDS Withholding Category: 194J(1)(b) 2% Technical Fee vs 10% Professional"
+    ],
     sourceSnippet: {
-      label: "SaaS Subscription Tax Invoice",
+      label: "Description of Service",
       field: "Description of Service",
       ocrValue: "Creative Cloud for Enterprise",
-      box: [90, 190, 240, 35]
-    }
+      box: [40, 220, 260, 32]
+    },
+    extractedFields: [
+      {
+        id: "f-006-inv",
+        label: "Invoice Number",
+        field: "invoiceNumber",
+        ocrValue: "ADBE-IN-90812",
+        confidence: 0.97,
+        box: [240, 60, 150, 24]
+      },
+      {
+        id: "f-006-desc",
+        label: "Line Item Description",
+        field: "serviceDescription",
+        ocrValue: "Creative Cloud for Enterprise",
+        confidence: 0.72, // Amber check (< 0.85)
+        box: [40, 220, 260, 32]
+      },
+      {
+        id: "f-006-total",
+        label: "Total Amount",
+        field: "totalAmount",
+        ocrValue: "34,200.00",
+        confidence: 0.98,
+        box: [260, 390, 140, 26]
+      }
+    ]
+  },
+  {
+    id: "rev-007",
+    title: "Gujarat Corridor Transit Tollway",
+    meta: "Unverified state cess provision · Audit caution",
+    amount: "₹18,400",
+    rawAmountPaise: 1840000,
+    identifier: "24AAACG8822K1Z5",
+    booksInvoice: "TOLL/SEP/441",
+    gstrInvoice: "TOLL/SEP/441",
+    books: "₹18,400",
+    gstr: "₹18,400",
+    why: "Invoice includes state infrastructure surcharge cited under an unnotified circular draft. Per audit policy, non-promulgated rules cannot be used for tax credit conclusions.",
+    category: "OTHER",
+    booksDate: "27/09/2024",
+    filingDate: "27/09/2024",
+    confidenceScore: 0.95,
+    ruleId: "CIRCULAR-UNVERIFIED-CESS",
+    ruleName: "Draft State Freight Surcharge Proposal (Internal Memo)",
+    ruleEffectiveDate: "Unscheduled to Open",
+    ruleVerified: false, // UNVERIFIED RULE!
+    assignedLedger: "Toll & State Transit Fees",
+    agreedFields: [
+      "Invoice Amount: ₹18,400 (Paise exact)",
+      "Invoice Number: TOLL/SEP/441",
+      "Toll Agency GSTIN: 24AAACG8822K1Z5"
+    ],
+    differingFields: [
+      "Statutory Authority: Draft circular without gazette notification",
+      "Audit Warning: Rule marked UNVERIFIED · Human confirmation required"
+    ],
+    sourceSnippet: {
+      label: "Transit Toll Surcharge Note",
+      field: "State Surcharge",
+      ocrValue: "18,400.00",
+      box: [260, 380, 150, 26]
+    },
+    extractedFields: [
+      {
+        id: "f-007-inv",
+        label: "Transit Bill Number",
+        field: "invoiceNumber",
+        ocrValue: "TOLL/SEP/441",
+        confidence: 0.97,
+        box: [240, 60, 140, 24]
+      },
+      {
+        id: "f-007-total",
+        label: "Total Toll & Cess",
+        field: "totalAmount",
+        ocrValue: "18,400.00",
+        confidence: 0.95,
+        box: [260, 380, 150, 26]
+      }
+    ]
+  },
+  {
+    id: "rev-008",
+    title: "City Stationery Mart (Petty Cash)",
+    meta: "Internal ledger adjustment · Routine",
+    amount: "₹3,450",
+    rawAmountPaise: 345000,
+    identifier: "Cash Voucher",
+    booksInvoice: "PC/2024/09/18",
+    gstrInvoice: "—",
+    books: "₹3,450",
+    gstr: "—",
+    why: "Internal office stationery purchase under ₹5,000 threshold. No GST registration for unregistered vendor; standard general ledger booking.",
+    category: "OTHER",
+    booksDate: "28/09/2024",
+    confidenceScore: 0.99,
+    ruleId: undefined, // No rule cited!
+    ruleName: undefined, // No rule cited!
+    ruleEffectiveDate: undefined,
+    ruleVerified: false,
+    assignedLedger: "Printing & Stationery Expenses",
+    agreedFields: [
+      "Voucher Amount: ₹3,450.00",
+      "Voucher Ref: PC/2024/09/18"
+    ],
+    differingFields: [
+      "No GST Portal Record (Unregistered petty supply)"
+    ],
+    sourceSnippet: {
+      label: "Cash Receipt Total",
+      field: "Receipt Amount",
+      ocrValue: "3,450.00",
+      box: [240, 360, 130, 24]
+    },
+    extractedFields: [
+      {
+        id: "f-008-inv",
+        label: "Cash Memo #",
+        field: "invoiceNumber",
+        ocrValue: "PC/2024/09/18",
+        confidence: 0.99,
+        box: [240, 60, 130, 24]
+      },
+      {
+        id: "f-008-total",
+        label: "Receipt Total",
+        field: "totalAmount",
+        ocrValue: "3,450.00",
+        confidence: 0.99,
+        box: [240, 360, 130, 24]
+      }
+    ]
   }
 ];
