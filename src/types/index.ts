@@ -9,11 +9,13 @@
 export type MatchStatus = 
   | 'EXACT_MATCH'         // 100% agreement on GSTIN, Invoice #, and Amount
   | 'TIMING_DIFF'         // Matched within allowed 30-day filing window
-  | 'INVOICE_TYPO'        // Fuzzy match on invoice string (e.g. / vs -)
+  | 'INVOICE_TYPO'        // Invoice delimiter or format variance (e.g. / vs -)
   | 'RATE_MISMATCH'       // Tax rate discrepancy (e.g. 18% in 2B vs 12% in books)
   | 'UNMAPPED_LEDGER'     // First-time vendor needing CA ledger assignment
   | 'MISSING_IN_2B'       // In books, not in portal (ITC at risk under 16(2)(aa))
-  | 'MISSING_IN_BOOKS';   // In portal, not in books (Unclaimed purchase)
+  | 'MISSING_IN_BOOKS'    // In portal, not in books (Unclaimed purchase)
+  | 'FUZZY_PARTY'         // Strict GSTIN & amount, fuzzy party name match (>0.82)
+  | 'RELAXED_MATCH';      // Date within 30d window, amount within ±100 paise
 
 export interface BookInvoice {
   id: string;
@@ -56,7 +58,9 @@ export interface ReconciledItem {
   portalRecord?: GSTR2BRecord;
   auditRationale: string; // Plain-language explanation for CA sign-off
   ruleCitation?: string; // e.g. "Section 16(2)(aa) CGST Act, 2017"
+  matchRule?: string; // e.g. "Exact 1:1 Match", "Relaxed Date Match (5d delta)"
   differenceAmount?: number;
+  differencePaise?: number; // Integer paise
   isApproved: boolean;
   learnedFromFirmMemory?: boolean;
 }

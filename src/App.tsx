@@ -716,7 +716,7 @@ export const App: React.FC = () => {
             )}
 
             {activeNav === 'reconciliation' && (
-              <ReconciliationView client={activeClient} />
+              <ReconciliationView client={activeClient} onNavigateToExceptions={() => setActiveNav('exceptions')} />
             )}
 
             {activeNav === 'deadlines' && (
