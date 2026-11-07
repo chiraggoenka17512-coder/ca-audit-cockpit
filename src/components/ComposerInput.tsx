@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { ReviewItem } from '../data/reviewItems';
 import { answerReconQuery, AssistantAnswer } from '../engine/chatAssistant';
 import { X } from 'lucide-react';
@@ -19,21 +19,6 @@ export const ComposerInput: React.FC<ComposerInputProps> = ({
   const [query, setQuery] = useState('');
   const [activeAnswer, setActiveAnswer] = useState<AssistantAnswer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // Keyboard shortcut '/' to focus search input
-  useEffect(() => {
-    const handleGlobalSlash = (e: KeyboardEvent) => {
-      if (e.key === '/' && document.activeElement !== inputRef.current) {
-        const target = e.target as HTMLElement;
-        if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
-          e.preventDefault();
-          inputRef.current?.focus();
-        }
-      }
-    };
-    window.addEventListener('keydown', handleGlobalSlash);
-    return () => window.removeEventListener('keydown', handleGlobalSlash);
-  }, []);
 
   const handleSearch = (text: string) => {
     setQuery(text);
@@ -163,7 +148,7 @@ export const ComposerInput: React.FC<ComposerInputProps> = ({
           </button>
         </div>
         <span className="text-xs text-[#8a909c]">
-          Press / to focus
+          ReconOS Assistant
         </span>
       </div>
     </div>

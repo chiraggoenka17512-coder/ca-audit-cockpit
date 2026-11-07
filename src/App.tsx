@@ -17,6 +17,7 @@ import { AuditTrailView } from './components/views/AuditTrailView';
 import { ClientSwitcherModal } from './components/ClientSwitcherModal';
 import { EditModal } from './components/EditModal';
 import { KeyboardHelpModal } from './components/KeyboardHelpModal';
+import { InvoiceFinderModal } from './components/InvoiceFinderModal';
 import { AuditEntry, createAuditEntry } from './engine/auditLedger';
 
 type NavSection = 'home' | 'exceptions' | 'reconciliation' | 'deadlines' | 'audit';
@@ -40,6 +41,7 @@ export const App: React.FC = () => {
 
   // Modal & Notification State
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isFinderModalOpen, setIsFinderModalOpen] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -184,16 +186,21 @@ export const App: React.FC = () => {
   // Keyboard navigation & shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      // Guard against typing in form inputs
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
+      // 1. Global Ctrl+K / Cmd+K to open/toggle Invoice Finder Modal from anywhere
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsFinderModalOpen(prev => !prev);
+        return;
+      }
+
+      // 2. Modals handle their own Esc
+      if (isFinderModalOpen) {
         if (e.key === 'Escape') {
-          target.blur();
+          setIsFinderModalOpen(false);
         }
         return;
       }
 
-      // Modals handle their own Esc
       if (isClientModalOpen || editingItem) {
         if (e.key === 'Escape') {
           setIsClientModalOpen(false);
@@ -203,11 +210,29 @@ export const App: React.FC = () => {
       }
 
       if (isHelpModalOpen) {
-        if (e.key === 'Escape') setIsHelpModalOpen(false);
+        if (e.key === 'Escape') {
+          setIsHelpModalOpen(false);
+        }
         return;
       }
 
-      // If Third Pane is open, handle its shortcuts
+      const target = e.target as HTMLElement;
+      // Guard against typing in form inputs
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable) {
+        if (e.key === 'Escape') {
+          target.blur();
+        }
+        return;
+      }
+
+      // 3. Global '/' to open Invoice Finder overlay (when not in an input)
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setIsFinderModalOpen(true);
+        return;
+      }
+
+      // 4. If Third Pane is open, handle its shortcuts
       if (activeDetailItem) {
         if (e.key.toLowerCase() === 'a' && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
@@ -226,14 +251,14 @@ export const App: React.FC = () => {
         }
       }
 
-      // Help Modal Toggle
+      // 5. Help Modal Toggle
       if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setIsHelpModalOpen(true);
         return;
       }
 
-      // Navigation in review list (Exceptions tab or Home)
+      // 6. Navigation in review list (Exceptions tab or Home)
       const key = e.key.toLowerCase();
 
       if ((key === 'j' || e.key === 'ArrowDown') && !e.ctrlKey && !e.metaKey) {
@@ -304,6 +329,7 @@ export const App: React.FC = () => {
     isClientModalOpen,
     editingItem,
     isHelpModalOpen,
+    isFinderModalOpen,
     handleApproveItem,
     handleBatchApproveTiming
   ]);
@@ -321,7 +347,7 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Pane 1: Sidebar (220px, exactly 6 places) */}
+      {/* Pane 1: Sidebar (220px, exactly 6 places + Find invoice) */}
       <aside className="cockpit-aside">
         <div className="cockpit-brand">
           AuditCockpit
@@ -371,7 +397,17 @@ export const App: React.FC = () => {
           <span>Audit trail</span>
         </button>
 
-        {/* 6th Place: Active Client Workspace Switcher */}
+        <button
+          type="button"
+          onClick={() => setIsFinderModalOpen(true)}
+          className="cockpit-nav-item"
+          title="Find invoice (Ctrl+K or /)"
+        >
+          <span>Find invoice</span>
+          <kbd className="text-[11px] text-[#8a909c] bg-[#171a21] px-1.5 py-0.5 rounded border border-[#262a33]">Ctrl+K</kbd>
+        </button>
+
+        {/* Active Client Workspace Switcher */}
         <div
           className="cockpit-client"
           onClick={() => setIsClientModalOpen(true)}
@@ -458,6 +494,21 @@ export const App: React.FC = () => {
       <KeyboardHelpModal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
+      />
+
+      {/* Invoice Finder Modal (Omni-Search Ctrl+K / /) */}
+      <InvoiceFinderModal
+        isOpen={isFinderModalOpen}
+        onClose={() => setIsFinderModalOpen(false)}
+        items={items}
+        client={activeClient}
+        onSelectInvoice={(item) => {
+          setActiveDetailItem(item);
+          const idx = items.findIndex(i => i.id === item.id);
+          if (idx !== -1) {
+            setFocusedIndex(idx);
+          }
+        }}
       />
     </div>
   );

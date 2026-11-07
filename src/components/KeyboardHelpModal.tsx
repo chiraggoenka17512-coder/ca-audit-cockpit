@@ -39,6 +39,14 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({
 
         <div className="grid grid-cols-2 gap-2 text-xs mb-4">
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
+            <span className="text-[#8a909c]">Find invoice</span>
+            <kbd className="text-[#3ddc97] font-medium">Ctrl+K / /</kbd>
+          </div>
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
+            <span className="text-[#8a909c]">Open review</span>
+            <kbd className="text-[#3ddc97] font-medium">Enter / R</kbd>
+          </div>
+          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Next item</span>
             <kbd className="text-[#3ddc97] font-medium">J / ↓</kbd>
           </div>
@@ -47,16 +55,8 @@ export const KeyboardHelpModal: React.FC<KeyboardHelpModalProps> = ({
             <kbd className="text-[#3ddc97] font-medium">K / ↑</kbd>
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
-            <span className="text-[#8a909c]">Open review</span>
-            <kbd className="text-[#3ddc97] font-medium">Enter / R</kbd>
-          </div>
-          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Approve match</span>
             <kbd className="text-[#3ddc97] font-medium">A</kbd>
-          </div>
-          <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
-            <span className="text-[#8a909c]">Ask / Search</span>
-            <kbd className="text-[#3ddc97] font-medium">/</kbd>
           </div>
           <div className="flex justify-between p-2.5 rounded bg-[#0f1115] border border-[#262a33]">
             <span className="text-[#8a909c]">Edit ledger</span>
